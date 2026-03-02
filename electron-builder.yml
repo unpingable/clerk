@@ -1,0 +1,15 @@
+appId: com.governor.clerk
+productName: Clerk
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - "!dist/renderer/src/**"
+linux:
+  target: AppImage
+  category: Utility
+mac:
+  target: dmg
+win:
+  target: nsis

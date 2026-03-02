@@ -1,0 +1,49 @@
+{
+  "name": "clerk",
+  "version": "0.1.0",
+  "description": "A desktop assistant that keeps receipts",
+  "author": "James Beck",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite build --watch\" \"tsc -p tsconfig.main.json --watch --preserveWatchOutput\" \"electron .\"",
+    "dev:renderer": "vite dev",
+    "dev:main": "tsc -p tsconfig.main.json --watch",
+    "build": "vite build && tsc -p tsconfig.main.json && node scripts/bundle-preload.mjs",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "start": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test -c playwright.electron.config.ts",
+    "lint": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json"
+  },
+  "keywords": [
+    "clerk",
+    "governor",
+    "governance",
+    "desktop",
+    "assistant"
+  ],
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "@testing-library/svelte": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.24.0",
+    "jsdom": "^25.0.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.0.0",
+    "vitest": "^2.0.0"
+  }
+}
