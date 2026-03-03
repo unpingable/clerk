@@ -50,7 +50,17 @@ describe('IPC handler registration', () => {
       applyTemplate: vi.fn(),
     };
 
-    registerIpcHandlers(mockClient as any, mockMonitor as any, { ok: true, path: '/bin/gov', version: '2.5.0', source: 'path' } as any, mockTemplateManager as any);
+    const mockFileManager = {
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+      listDir: vi.fn(),
+    };
+
+    const mockToolLoop = {
+      run: vi.fn(),
+    };
+
+    registerIpcHandlers(mockClient as any, mockMonitor as any, { ok: true, path: '/bin/gov', version: '2.5.0', source: 'path' } as any, mockTemplateManager as any, mockFileManager as any, mockToolLoop as any);
 
     const handleCalls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls;
     const registeredChannels = handleCalls.map((c: unknown[]) => c[0]);
@@ -72,6 +82,9 @@ describe('IPC handler registration', () => {
     expect(registeredChannels).toContain(Channels.TEMPLATES_LIST);
     expect(registeredChannels).toContain(Channels.TEMPLATES_CURRENT);
     expect(registeredChannels).toContain(Channels.TEMPLATES_APPLY);
+    expect(registeredChannels).toContain(Channels.FILES_READ);
+    expect(registeredChannels).toContain(Channels.FILES_WRITE);
+    expect(registeredChannels).toContain(Channels.FILES_LIST);
   });
 
   it('HEALTH handler delegates to client.health()', async () => {

@@ -35,6 +35,14 @@ export const Channels = {
   TEMPLATES_LIST: 'templates:list',
   TEMPLATES_CURRENT: 'templates:current',
   TEMPLATES_APPLY: 'templates:apply',
+
+  // File operations
+  FILES_READ: 'files:read',
+  FILES_WRITE: 'files:write',
+  FILES_LIST: 'files:list',
+
+  // File action events (tool loop)
+  CHAT_FILE_ACTION: 'clerk:chat:file-action',
 } as const;
 
 export type Channel = (typeof Channels)[keyof typeof Channels];

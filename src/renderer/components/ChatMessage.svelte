@@ -4,6 +4,7 @@
   import type { ChatMessage } from '$shared/types';
   import { formatTimestamp } from '$lib/format';
   import ReceiptStrip from './ReceiptStrip.svelte';
+  import FileActionStrip from './FileActionStrip.svelte';
 
   let { message }: { message: ChatMessage } = $props();
 
@@ -17,6 +18,11 @@
     <div class="content">
       {message.content}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
     </div>
+    {#if message.fileActions?.length}
+      {#each message.fileActions as action}
+        <FileActionStrip {action} />
+      {/each}
+    {/if}
     {#if message.receipt}
       <ReceiptStrip receipt={message.receipt} />
     {/if}

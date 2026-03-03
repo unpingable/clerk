@@ -10,11 +10,16 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import { GovernorClient } from './rpc-client.js';
 import { ConnectionMonitor } from './connection.js';
 import { registerIpcHandlers } from './ipc-handlers.js';
 import { resolveGovernorDaemon } from './daemon-resolver.js';
 import { TemplateManager } from './template-manager.js';
+import { FileManager } from './file-manager.js';
+import { ToolLoop } from './tool-loop.js';
+import { getTemplateById, getDefaultTemplate } from '../shared/templates.js';
+import type { FileManagerIO } from './file-manager.js';
 import type { DaemonResolveResult } from './daemon-resolver.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -34,6 +39,24 @@ let resolveResult: DaemonResolveResult;
 let client: GovernorClient | null = null;
 let monitor: ConnectionMonitor | null = null;
 let templateManager: TemplateManager | null = null;
+let fileManager: FileManager | null = null;
+let toolLoop: ToolLoop | null = null;
+
+const fsIO: FileManagerIO = {
+  lstat: (p) => fs.promises.lstat(p),
+  stat: (p) => fs.promises.stat(p),
+  readFile: (p, enc) => fs.promises.readFile(p, enc),
+  open: async (p, flags) => {
+    const fh = await fs.promises.open(p, flags);
+    return {
+      write: (data: string) => fh.writeFile(data),
+      close: () => fh.close(),
+    };
+  },
+  realpath: (p) => fs.promises.realpath(p),
+  access: (p) => fs.promises.access(p),
+  readdir: (p, opts) => fs.promises.readdir(p, opts),
+};
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -67,7 +90,18 @@ app.whenReady().then(() => {
 
     templateManager = new TemplateManager(client, governorDir);
     templateManager.loadPersistedSelection();
-    registerIpcHandlers(client, monitor, resolveResult, templateManager);
+    fileManager = new FileManager(
+      client,
+      governorDir,
+      () => {
+        const state = templateManager!.getState();
+        const tmpl = getTemplateById(state.appliedTemplateId) ?? getDefaultTemplate();
+        return { appliedTemplateId: state.appliedTemplateId, appliedProfile: tmpl.governorProfile };
+      },
+      fsIO,
+    );
+    toolLoop = new ToolLoop(client, fileManager);
+    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop);
     createWindow();
     monitor.start();
 

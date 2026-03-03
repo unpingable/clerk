@@ -30,6 +30,7 @@ export interface ChatMessage {
   streaming?: boolean;
   receipt?: ReceiptRef | null;
   violations?: ViolationRef[];
+  fileActions?: FileAction[];
 }
 
 export interface ReceiptRef {
@@ -59,6 +60,7 @@ export interface ChatStreamEnd {
     receipt?: ReceiptRef | null;
     violations?: ViolationRef[];
     pending?: PendingViolation | null;
+    fileActions?: FileAction[];
   };
 }
 
@@ -240,6 +242,82 @@ export interface TemplatesListResult {
   defaultTemplateId: string;
 }
 
+// --- File Operations ---
+
+export type FileErrorCode =
+  | 'PATH_DENIED'
+  | 'BLOCKED'
+  | 'NOT_FOUND'
+  | 'FILE_EXISTS'
+  | 'NOT_A_DIRECTORY'
+  | 'DAEMON_NOT_READY'
+  | 'IO_ERROR'
+  | 'CONTENT_TOO_LARGE'
+  | 'PATH_TOO_LONG'
+  | 'BINARY_FILE';
+
+export interface ScopeDecision {
+  allowed: boolean;
+  reason: string;
+  toolId: string;
+  appliedTemplateId: string;
+  appliedProfile: string;
+}
+
+export interface FileReadResult {
+  ok: true;
+  content: string;
+  resolvedPath: string;
+  decision: ScopeDecision;
+}
+
+export interface FileWriteResult {
+  ok: true;
+  resolvedPath: string;
+  decision: ScopeDecision;
+}
+
+export type FileErrorResult = {
+  ok: false;
+  code: FileErrorCode;
+  message: string;
+  decision?: ScopeDecision;
+};
+
+export interface DirEntry {
+  name: string;
+  type: 'file' | 'directory' | 'other';
+  size: number;
+}
+
+export interface FileListResult {
+  ok: true;
+  entries: DirEntry[];
+  truncated: boolean;
+  resolvedPath: string;
+  decision: ScopeDecision;
+}
+
+export type FileReadResponse = FileReadResult | FileErrorResult;
+export type FileWriteResponse = FileWriteResult | FileErrorResult;
+export type FileListResponse = FileListResult | FileErrorResult;
+
+// --- File Actions (tool loop) ---
+
+export interface FileAction {
+  tool: string;
+  path: string;
+  allowed: boolean;
+  profile: string;
+  error?: string;
+  summary?: string;
+}
+
+export interface ChatFileActionEvent {
+  streamId: string;
+  action: FileAction;
+}
+
 // --- Preload API shape ---
 
 export interface ClerkAPI {
@@ -277,6 +355,15 @@ export interface ClerkAPI {
   templatesList(): Promise<TemplatesListResult>;
   templatesCurrent(): Promise<TemplateState>;
   templatesApply(req: TemplateApplyRequest): Promise<TemplateApplyResult>;
+
+  // File operations
+  fileRead(relativePath: string): Promise<FileReadResponse>;
+  fileWrite(relativePath: string, content: string): Promise<FileWriteResponse>;
+  fileList(relativePath: string): Promise<FileListResponse>;
+
+  // File action events (tool loop)
+  onFileAction(cb: (data: ChatFileActionEvent) => void): void;
+  offFileAction(): void;
 
   // Connection state events
   onConnectionState(cb: (state: string) => void): void;

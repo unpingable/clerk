@@ -22,7 +22,17 @@ import type {
   ModelInfo,
   IntentSchemaResult,
   IntentCompileResult,
+  ScopeDecision,
 } from '../shared/types.js';
+
+// ---------------------------------------------------------------------------
+// Scope check
+// ---------------------------------------------------------------------------
+
+export interface ScopeCheckResult {
+  allowed: boolean;
+  reason: string;
+}
 
 // ---------------------------------------------------------------------------
 // Content-Length framing
@@ -400,6 +410,14 @@ export class GovernorClient {
 
   async commitProceed(reason: string): Promise<ResolutionResult> {
     return this.transport.call('commit.proceed', { reason });
+  }
+
+  // --- Intent (constraint templates) ---
+
+  // --- Scope Check ---
+
+  async scopeCheck(toolId: string, scope: Record<string, string>): Promise<ScopeCheckResult> {
+    return this.transport.call('scope.check', { tool_id: toolId, scope });
   }
 
   // --- Intent (constraint templates) ---

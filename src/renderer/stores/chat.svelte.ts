@@ -5,7 +5,7 @@
  */
 
 import { api } from '$lib/api';
-import type { ChatMessage, ChatStreamDelta, ChatStreamEnd, ModelInfo, PendingViolation } from '$shared/types';
+import type { ChatMessage, ChatStreamDelta, ChatStreamEnd, ChatFileActionEvent, ModelInfo, PendingViolation } from '$shared/types';
 
 // --- State ---
 
@@ -92,12 +92,24 @@ export function onEnd(data: ChatStreamEnd): void {
     last.streaming = false;
     last.receipt = data.result.receipt ?? null;
     last.violations = data.result.violations ?? [];
+    if (data.result.fileActions) {
+      last.fileActions = data.result.fileActions;
+    }
     if (data.result.pending) {
       pendingViolation = data.result.pending;
     }
   }
   streaming = false;
   currentStreamId = null;
+}
+
+export function onFileAction(data: ChatFileActionEvent): void {
+  if (data.streamId !== currentStreamId) return;
+  const last = messages[messages.length - 1];
+  if (last?.role === 'assistant') {
+    if (!last.fileActions) last.fileActions = [];
+    last.fileActions.push(data.action);
+  }
 }
 
 export async function resolveViolation(action: 'fix' | 'revise' | 'proceed', param?: string): Promise<void> {

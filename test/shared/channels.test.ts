@@ -30,6 +30,13 @@ describe('Channels', () => {
     expect(Channels.TEMPLATES_APPLY).toBe('templates:apply');
   });
 
+  it('has file channels', () => {
+    expect(Channels.FILES_READ).toBe('files:read');
+    expect(Channels.FILES_WRITE).toBe('files:write');
+    expect(Channels.FILES_LIST).toBe('files:list');
+    expect(Channels.CHAT_FILE_ACTION).toBe('clerk:chat:file-action');
+  });
+
   it('all values are unique', () => {
     const values = Object.values(Channels);
     const unique = new Set(values);

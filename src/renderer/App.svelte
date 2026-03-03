@@ -26,6 +26,7 @@
       if (status.ok) {
         api.onChatDelta(chat.onDelta);
         api.onChatEnd(chat.onEnd);
+        api.onFileAction(chat.onFileAction);
         api.onConnectionState((state) => {
           conn.setConnectionState(state as 'connected' | 'degraded' | 'disconnected');
         });
@@ -41,6 +42,7 @@
       conn.stopPolling();
       api.offChatDelta();
       api.offChatEnd();
+      api.offFileAction();
       api.offConnectionState();
     };
   });

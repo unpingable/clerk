@@ -54,6 +54,22 @@ const api: ClerkAPI = {
   templatesCurrent: () => ipcRenderer.invoke(Channels.TEMPLATES_CURRENT),
   templatesApply: (req) => ipcRenderer.invoke(Channels.TEMPLATES_APPLY, req),
 
+  // File operations
+  fileRead: (relativePath: string) =>
+    ipcRenderer.invoke(Channels.FILES_READ, relativePath),
+  fileWrite: (relativePath: string, content: string) =>
+    ipcRenderer.invoke(Channels.FILES_WRITE, relativePath, content),
+  fileList: (relativePath: string) =>
+    ipcRenderer.invoke(Channels.FILES_LIST, relativePath),
+
+  // File action events (tool loop)
+  onFileAction: (cb) => {
+    ipcRenderer.on(Channels.CHAT_FILE_ACTION, (_e, data) => cb(data));
+  },
+  offFileAction: () => {
+    ipcRenderer.removeAllListeners(Channels.CHAT_FILE_ACTION);
+  },
+
   // Connection state
   onConnectionState: (cb) => {
     ipcRenderer.on(Channels.CONNECTION_STATE, (_e, state) => cb(state));
