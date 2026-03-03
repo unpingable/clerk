@@ -120,6 +120,58 @@ export interface ResolutionResult {
   message: string;
 }
 
+// --- Intent (daemon compile contract) ---
+
+export interface IntentSchemaField {
+  field_id: string;
+  widget: string;
+  label: string;
+  options?: Array<{ value: string; label: string; confidence?: number }>;
+  range?: [number, number];
+  default?: unknown;
+  required: boolean;
+  help_text?: string;
+}
+
+export interface IntentSchemaResult {
+  schema_id: string;
+  template_name: string;
+  mode: string;
+  policy: string;
+  fields: IntentSchemaField[];
+  escape_enabled: boolean;
+}
+
+export interface ConstraintBlock {
+  constraints: Array<{
+    id: string;
+    kind: string;
+    severity: string;
+    description: string;
+    [key: string]: unknown;
+  }>;
+  content_hash: string;
+  compiled_at: string;
+  intent: string;
+  scope: string[];
+  mode: string;
+  envelope: string;
+  profile: string;
+  exploratory_warning: boolean;
+  [key: string]: unknown;
+}
+
+export interface IntentCompileResult {
+  intent_profile: string;
+  intent_scope: string[] | null;
+  intent_deny: string[] | null;
+  intent_timebox_minutes: number | null;
+  constraint_block: ConstraintBlock | null;
+  selected_branch: string | null;
+  warnings: string[];
+  receipt_hash: string;
+}
+
 // --- Daemon Resolver ---
 
 export interface DaemonStatusOk {

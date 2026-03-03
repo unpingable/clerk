@@ -36,7 +36,7 @@ export const BUILTIN_TEMPLATES: readonly ConstraintTemplate[] = [
       network: 'deny',
       destructive: 'deny',
     },
-    governorProfile: 'established',
+    governorProfile: 'production',
   },
   {
     id: 'take_the_wheel',
@@ -52,7 +52,7 @@ export const BUILTIN_TEMPLATES: readonly ConstraintTemplate[] = [
       network: 'ask',
       destructive: 'ask',
     },
-    governorProfile: 'greenfield',
+    governorProfile: 'research',
   },
   {
     id: 'unrestricted',

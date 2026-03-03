@@ -20,6 +20,8 @@ import type {
   PendingViolation,
   ResolutionResult,
   ModelInfo,
+  IntentSchemaResult,
+  IntentCompileResult,
 } from '../shared/types.js';
 
 // ---------------------------------------------------------------------------
@@ -402,19 +404,18 @@ export class GovernorClient {
 
   // --- Intent (constraint templates) ---
 
-  async intentSchema(templateName: string): Promise<string> {
-    const result = await this.transport.call<{ schema_id: string }>('intent.schema', { template: templateName });
-    return result.schema_id;
+  async intentSchema(templateName: string): Promise<IntentSchemaResult> {
+    return this.transport.call('intent.schema', { template_name: templateName });
   }
 
   async intentCompile(
     schemaId: string,
     templateName: string,
     values: Record<string, unknown>,
-  ): Promise<{ receipt_hash?: string }> {
+  ): Promise<IntentCompileResult> {
     return this.transport.call('intent.compile', {
       schema_id: schemaId,
-      template: templateName,
+      template_name: templateName,
       values,
     });
   }

@@ -59,20 +59,29 @@ describe('BUILTIN_TEMPLATES', () => {
     expect(t.capabilities.destructive).toBe('deny');
   });
 
-  it('help_me_edit allows read, asks for write', () => {
+  it('help_me_edit allows read, asks for write, maps to production profile', () => {
     const t = getTemplateById('help_me_edit')!;
     expect(t.capabilities.read).toBe('allow');
     expect(t.capabilities.write).toBe('ask');
     expect(t.capabilities.execute).toBe('deny');
+    expect(t.governorProfile).toBe('production');
   });
 
-  it('take_the_wheel allows read/write/execute, asks for network/destructive', () => {
+  it('take_the_wheel allows read/write/execute, asks for network/destructive, maps to research profile', () => {
     const t = getTemplateById('take_the_wheel')!;
     expect(t.capabilities.read).toBe('allow');
     expect(t.capabilities.write).toBe('allow');
     expect(t.capabilities.execute).toBe('allow');
     expect(t.capabilities.network).toBe('ask');
     expect(t.capabilities.destructive).toBe('ask');
+    expect(t.governorProfile).toBe('research');
+  });
+
+  it('all profiles are valid daemon profiles', () => {
+    const DAEMON_PROFILES = ['strict', 'permissive', 'research', 'production', 'audit'];
+    for (const t of BUILTIN_TEMPLATES) {
+      expect(DAEMON_PROFILES).toContain(t.governorProfile);
+    }
   });
 
   it('unrestricted allows everything', () => {

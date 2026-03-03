@@ -3,11 +3,34 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TemplateManager } from '../../src/main/template-manager';
 import type { TemplateManagerClient, TemplateManagerIO } from '../../src/main/template-manager';
 import { DEFAULT_TEMPLATE_ID } from '../../src/shared/templates';
+import type { IntentSchemaResult, IntentCompileResult } from '../../src/shared/types';
+
+const MOCK_SCHEMA: IntentSchemaResult = {
+  schema_id: 'schema-abc',
+  template_name: 'session_start',
+  mode: 'general',
+  policy: 'template_only',
+  fields: [
+    { field_id: 'profile', widget: 'select_one', label: 'Governance profile', required: true },
+  ],
+  escape_enabled: false,
+};
+
+const MOCK_COMPILE: IntentCompileResult = {
+  intent_profile: 'strict',
+  intent_scope: null,
+  intent_deny: null,
+  intent_timebox_minutes: null,
+  constraint_block: null,
+  selected_branch: null,
+  warnings: [],
+  receipt_hash: 'hash-123',
+};
 
 function mockClient(overrides: Partial<TemplateManagerClient> = {}): TemplateManagerClient {
   return {
-    intentSchema: vi.fn().mockResolvedValue('schema-abc'),
-    intentCompile: vi.fn().mockResolvedValue({ receipt_hash: 'hash-123' }),
+    intentSchema: vi.fn().mockResolvedValue(MOCK_SCHEMA),
+    intentCompile: vi.fn().mockResolvedValue(MOCK_COMPILE),
     isRunning: true,
     ...overrides,
   };
@@ -59,7 +82,7 @@ describe('TemplateManager', () => {
   });
 
   describe('applyTemplate', () => {
-    it('calls intentSchema + intentCompile and sets appliedTemplateId', async () => {
+    it('calls intentSchema + intentCompile with real daemon fields', async () => {
       const result = await manager.applyTemplate({
         templateId: 'take_the_wheel',
         requestId: 'req-1',
@@ -71,16 +94,27 @@ describe('TemplateManager', () => {
         expect(result.receiptHash).toBe('hash-123');
       }
       expect(client.intentSchema).toHaveBeenCalledWith('session_start');
+      // Verify we send profile (real daemon field), not invented fields
       expect(client.intentCompile).toHaveBeenCalledWith(
         'schema-abc',
         'session_start',
-        expect.objectContaining({
-          profile: 'greenfield',
-          template_id: 'take_the_wheel',
-          template_version: '1.0.0',
-        }),
+        { profile: 'research' },
       );
       expect(manager.getState().appliedTemplateId).toBe('take_the_wheel');
+    });
+
+    it('sends correct profile per template', async () => {
+      await manager.applyTemplate({ templateId: 'look_around', requestId: 'req-la' });
+      expect(client.intentCompile).toHaveBeenCalledWith(
+        'schema-abc', 'session_start', { profile: 'strict' },
+      );
+
+      // Reset and apply help_me_edit
+      (client.intentCompile as ReturnType<typeof vi.fn>).mockClear();
+      await manager.applyTemplate({ templateId: 'help_me_edit', requestId: 'req-hme' });
+      expect(client.intentCompile).toHaveBeenCalledWith(
+        'schema-abc', 'session_start', { profile: 'production' },
+      );
     });
 
     it('persists after successful apply', async () => {
@@ -191,6 +225,17 @@ describe('TemplateManager', () => {
       expect(client.intentSchema).toHaveBeenCalledTimes(1);
     });
 
+    it('extracts schema_id from full schema response', async () => {
+      await manager.applyTemplate({ templateId: 'look_around', requestId: 'req-sid' });
+
+      // intentCompile should receive the schema_id string, not the full object
+      expect(client.intentCompile).toHaveBeenCalledWith(
+        'schema-abc',
+        'session_start',
+        expect.any(Object),
+      );
+    });
+
     it('retries once on schema error then fails', async () => {
       let callCount = 0;
       const schemaClient = mockClient({
@@ -199,18 +244,16 @@ describe('TemplateManager', () => {
           if (callCount <= 2) {
             throw new Error('unknown schema mismatch');
           }
-          return { receipt_hash: 'ok' };
+          return MOCK_COMPILE;
         }),
         intentSchema: vi.fn()
-          .mockResolvedValueOnce('stale-schema')
-          .mockResolvedValueOnce('fresh-schema'),
+          .mockResolvedValueOnce({ ...MOCK_SCHEMA, schema_id: 'stale-schema' })
+          .mockResolvedValueOnce({ ...MOCK_SCHEMA, schema_id: 'fresh-schema' }),
       });
       const mgr = new TemplateManager(schemaClient, '/gov', io);
 
-      // First call: compile fails with schema error → clears cache → refetches → retries compile → fails again → COMPILE_FAILED
       const result = await mgr.applyTemplate({ templateId: 'look_around', requestId: 'req-c' });
       expect(result.ok).toBe(false);
-      // intentSchema called twice: once initially, once on retry
       expect(schemaClient.intentSchema).toHaveBeenCalledTimes(2);
     });
 
@@ -220,11 +263,11 @@ describe('TemplateManager', () => {
         intentCompile: vi.fn().mockImplementation(async () => {
           callCount++;
           if (callCount === 1) throw new Error('unknown schema');
-          return { receipt_hash: 'ok' };
+          return MOCK_COMPILE;
         }),
         intentSchema: vi.fn()
-          .mockResolvedValueOnce('stale')
-          .mockResolvedValueOnce('fresh'),
+          .mockResolvedValueOnce({ ...MOCK_SCHEMA, schema_id: 'stale' })
+          .mockResolvedValueOnce({ ...MOCK_SCHEMA, schema_id: 'fresh' }),
       });
       const mgr = new TemplateManager(schemaClient, '/gov', io);
 
@@ -236,12 +279,11 @@ describe('TemplateManager', () => {
 
   describe('race safety', () => {
     it('discards stale apply when applySeq advances', async () => {
-      // Create a slow client that lets us interleave
-      let resolveFirst: ((v: { receipt_hash?: string }) => void) | undefined;
+      let resolveFirst: ((v: IntentCompileResult) => void) | undefined;
       const slowClient = mockClient({
         intentCompile: vi.fn()
           .mockImplementationOnce(() => new Promise(r => { resolveFirst = r; }))
-          .mockResolvedValueOnce({ receipt_hash: 'second-hash' }),
+          .mockResolvedValueOnce({ ...MOCK_COMPILE, receipt_hash: 'second-hash' }),
       });
       const mgr = new TemplateManager(slowClient, '/gov', io);
 
@@ -252,7 +294,7 @@ describe('TemplateManager', () => {
       const second = await mgr.applyTemplate({ templateId: 'take_the_wheel', requestId: 'req-2' });
 
       // Now resolve the first
-      resolveFirst!({ receipt_hash: 'first-hash' });
+      resolveFirst!({ ...MOCK_COMPILE, receipt_hash: 'first-hash' });
       await first;
 
       // Second apply won — take_the_wheel is applied
@@ -266,7 +308,7 @@ describe('TemplateManager', () => {
         schema_version: 1,
         template_id: 'take_the_wheel',
         template_version: '1.0.0',
-        applied_profile: 'greenfield',
+        applied_profile: 'research',
         applied_at: '2026-03-02T00:00:00Z',
         confirmed_at: null,
       });
@@ -349,7 +391,7 @@ describe('TemplateManager', () => {
         schema_version: 1,
         template_id: 'take_the_wheel',
         template_version: '1.0.0',
-        applied_profile: 'greenfield',
+        applied_profile: 'research',
         applied_at: '2026-03-02T00:00:00Z',
         confirmed_at: null,
       });

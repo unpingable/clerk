@@ -20,6 +20,8 @@ import type {
   TemplateState,
   TemplatesListResult,
   TemplateApplyErrorCode,
+  IntentSchemaResult,
+  IntentCompileResult,
 } from '../shared/types.js';
 import type { GovernorClient } from './rpc-client.js';
 
@@ -34,8 +36,8 @@ interface PersistedTemplate {
 
 /** Subset of GovernorClient used by TemplateManager, for testability. */
 export interface TemplateManagerClient {
-  intentSchema(templateName: string): Promise<string>;
-  intentCompile(schemaId: string, templateName: string, values: Record<string, unknown>): Promise<{ receipt_hash?: string }>;
+  intentSchema(templateName: string): Promise<IntentSchemaResult>;
+  intentCompile(schemaId: string, templateName: string, values: Record<string, unknown>): Promise<IntentCompileResult>;
   readonly isRunning: boolean;
 }
 
@@ -69,6 +71,7 @@ export class TemplateManager {
   private applySeq = 0;
   private lastError?: { code: TemplateApplyErrorCode; message: string };
   private lastReceiptHash?: string;
+  private lastCompileResult?: IntentCompileResult;
   private cachedSchemaId: string | null = null;
 
   constructor(
@@ -145,29 +148,33 @@ export class TemplateManager {
     try {
       // Schema fetch (cached)
       if (!this.cachedSchemaId) {
-        this.cachedSchemaId = await this.client.intentSchema('session_start');
+        const schema = await this.client.intentSchema('session_start');
+        this.cachedSchemaId = schema.schema_id;
       }
 
-      const compileValues = {
+      // Real daemon fields — profile is the primary lever, scope/mode are optional
+      const compileValues: Record<string, unknown> = {
         profile: template.governorProfile,
-        template_id: template.id,
-        template_version: template.version,
-        capabilities: template.capabilities,
-        project_root: this.canonicalDir,
       };
 
-      let result: { receipt_hash?: string };
+      let result: IntentCompileResult;
       try {
         result = await this.client.intentCompile(this.cachedSchemaId, 'session_start', compileValues);
       } catch (err) {
         // Schema cache invalidation: retry once on schema mismatch
         if (isSchemaError(err)) {
           this.cachedSchemaId = null;
-          this.cachedSchemaId = await this.client.intentSchema('session_start');
+          const schema = await this.client.intentSchema('session_start');
+          this.cachedSchemaId = schema.schema_id;
           result = await this.client.intentCompile(this.cachedSchemaId, 'session_start', compileValues);
         } else {
           throw err;
         }
+      }
+
+      // Log warnings from daemon (non-fatal)
+      if (result.warnings?.length) {
+        console.error(`[template-manager] compile warnings:`, result.warnings);
       }
 
       // Race check — if another apply happened while we were awaiting, discard
@@ -179,6 +186,7 @@ export class TemplateManager {
       this.appliedTemplateId = templateId;
       this.applying = false;
       this.lastReceiptHash = result.receipt_hash;
+      this.lastCompileResult = result;
 
       // Persist atomically
       try {
