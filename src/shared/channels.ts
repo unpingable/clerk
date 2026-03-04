@@ -39,10 +39,22 @@ export const Channels = {
   // File operations
   FILES_READ: 'files:read',
   FILES_WRITE: 'files:write',
+  FILES_OVERWRITE: 'files:overwrite',
   FILES_LIST: 'files:list',
+
+  // Chat stream control
+  CHAT_STREAM_STOP: 'clerk:chat:stream:stop',
+
+  // Ask (interactive approval)
+  CHAT_ASK_REQUEST: 'clerk:chat:ask:request',
+  CHAT_ASK_RESPOND: 'clerk:chat:ask:respond',
 
   // File action events (tool loop)
   CHAT_FILE_ACTION: 'clerk:chat:file-action',
+
+  // Activity feed
+  ACTIVITY_LIST: 'activity:list',
+  ACTIVITY_EVENT: 'activity:event',
 } as const;
 
 export type Channel = (typeof Channels)[keyof typeof Channels];

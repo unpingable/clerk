@@ -18,8 +18,13 @@ import { resolveGovernorDaemon } from './daemon-resolver.js';
 import { TemplateManager } from './template-manager.js';
 import { FileManager } from './file-manager.js';
 import { ToolLoop } from './tool-loop.js';
+import { ActivityLog } from './activity-log.js';
+import { ActivityManager } from './activity-manager.js';
+import { makeAskGate } from './ipc-handlers.js';
+import type { AskGateState } from './ipc-handlers.js';
 import { getTemplateById, getDefaultTemplate } from '../shared/templates.js';
 import type { FileManagerIO } from './file-manager.js';
+import type { ActivityLogIO } from './activity-log.js';
 import type { DaemonResolveResult } from './daemon-resolver.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,6 +46,8 @@ let monitor: ConnectionMonitor | null = null;
 let templateManager: TemplateManager | null = null;
 let fileManager: FileManager | null = null;
 let toolLoop: ToolLoop | null = null;
+let activityManager: ActivityManager | null = null;
+let askGateState: AskGateState | null = null;
 
 const fsIO: FileManagerIO = {
   lstat: (p) => fs.promises.lstat(p),
@@ -53,9 +60,32 @@ const fsIO: FileManagerIO = {
       close: () => fh.close(),
     };
   },
+  writeFile: (p, data) => fs.promises.writeFile(p, data, { encoding: 'utf-8' }),
+  rename: (src, dst) => fs.promises.rename(src, dst),
   realpath: (p) => fs.promises.realpath(p),
   access: (p) => fs.promises.access(p),
   readdir: (p, opts) => fs.promises.readdir(p, opts),
+};
+
+const activityLogIO: ActivityLogIO = {
+  appendFile: (p, data) => fs.promises.appendFile(p, data, { encoding: 'utf-8' }),
+  readFile: (p, enc) => fs.promises.readFile(p, enc),
+  stat: (p) => fs.promises.stat(p),
+  writeFile: (p, data) => fs.promises.writeFile(p, data, { encoding: 'utf-8' }),
+  readBytes: async (p, start, length) => {
+    const fh = await fs.promises.open(p, 'r');
+    try {
+      const buf = Buffer.alloc(length);
+      await fh.read(buf, 0, length, start);
+      return buf;
+    } finally {
+      await fh.close();
+    }
+  },
+  rename: (src, dst) => fs.promises.rename(src, dst),
+  existsSync: (p) => fs.existsSync(p),
+  mkdirSync: (p, opts) => fs.mkdirSync(p, opts),
+  writeFileSync: (p, data) => fs.writeFileSync(p, data, { encoding: 'utf-8' }),
 };
 
 function createWindow(): BrowserWindow {
@@ -88,8 +118,16 @@ app.whenReady().then(() => {
     monitor = new ConnectionMonitor(client);
     client.start();
 
-    templateManager = new TemplateManager(client, governorDir);
+    // Activity feed — create before TemplateManager/FileManager so they can record events
+    const activityLog = new ActivityLog(governorDir, activityLogIO);
+    activityManager = new ActivityManager(activityLog, () => templateManager!.getAppliedModeInfo());
+
+    templateManager = new TemplateManager(client, governorDir, undefined, activityManager);
     templateManager.loadPersistedSelection();
+    activityManager.init().catch((err) => {
+      console.error('[clerk] activity log init error:', err);
+    });
+
     fileManager = new FileManager(
       client,
       governorDir,
@@ -99,10 +137,13 @@ app.whenReady().then(() => {
         return { appliedTemplateId: state.appliedTemplateId, appliedProfile: tmpl.governorProfile };
       },
       fsIO,
+      activityManager,
     );
-    toolLoop = new ToolLoop(client, fileManager);
-    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop);
-    createWindow();
+    const win = createWindow();
+    askGateState = makeAskGate(() => BrowserWindow.getAllWindows()[0]);
+    toolLoop = new ToolLoop(client, fileManager, askGateState.gate);
+    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState);
+    activityManager.attachBroadcast(win.webContents);
     monitor.start();
 
     // Apply persisted template async — non-blocking, logged

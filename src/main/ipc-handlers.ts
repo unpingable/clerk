@@ -14,14 +14,116 @@ import { GovernorClient } from './rpc-client.js';
 import { ConnectionMonitor } from './connection.js';
 import type { TemplateManager } from './template-manager.js';
 import type { FileManager } from './file-manager.js';
-import type { ToolLoop } from './tool-loop.js';
+import type { ToolLoop, AskGate } from './tool-loop.js';
+import type { ActivityManager } from './activity-manager.js';
 import type { DaemonResolveResult } from './daemon-resolver.js';
-import type { TemplateApplyRequest } from '../shared/types.js';
+import type { TemplateApplyRequest, AskRequest, AskGrantToken, AskDecision } from '../shared/types.js';
 
 function requireDaemon(client: GovernorClient | null): GovernorClient {
   if (!client) throw new Error('Governor daemon not available. Check daemon status for details.');
   return client;
 }
+
+// ---------------------------------------------------------------------------
+// AskGate factory
+// ---------------------------------------------------------------------------
+
+const ASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+export interface AskGateState {
+  gate: AskGate;
+  respondToAsk: (askId: string, decision: AskDecision, streamId: string, correlationId: string, toolId: string, path: string, expectedHash?: string) => void;
+}
+
+export function makeAskGate(getWin: () => BrowserWindow | undefined): AskGateState {
+  const pendingAsks = new Map<string, {
+    resolve: (result: { decision: 'allow_once' | 'deny'; grantToken?: AskGrantToken; reason?: string }) => void;
+    timer: ReturnType<typeof setTimeout>;
+    signal: AbortSignal;
+  }>();
+
+  const gate: AskGate = {
+    async requestAsk(req: AskRequest, signal: AbortSignal) {
+      // One pending ask at a time — auto-deny if another is pending
+      if (pendingAsks.size > 0) {
+        return { decision: 'deny' as const, reason: 'Another ask is already pending.' };
+      }
+
+      return new Promise<{ decision: 'allow_once' | 'deny'; grantToken?: AskGrantToken; reason?: string }>((resolve) => {
+        // Auto-deny on timeout
+        const timer = setTimeout(() => {
+          pendingAsks.delete(req.askId);
+          resolve({ decision: 'deny', reason: 'Ask timed out after 5 minutes.' });
+        }, ASK_TIMEOUT_MS);
+
+        // Auto-deny on abort (stop)
+        const onAbort = () => {
+          clearTimeout(timer);
+          pendingAsks.delete(req.askId);
+          resolve({ decision: 'deny', reason: 'STOPPED_BY_USER' });
+        };
+
+        if (signal.aborted) {
+          clearTimeout(timer);
+          resolve({ decision: 'deny', reason: 'STOPPED_BY_USER' });
+          return;
+        }
+
+        signal.addEventListener('abort', onAbort, { once: true });
+
+        pendingAsks.set(req.askId, { resolve, timer, signal });
+
+        // Send ask request to renderer
+        const win = getWin();
+        if (win) {
+          win.webContents.send(Channels.CHAT_ASK_REQUEST, req);
+        } else {
+          // No window — auto-deny
+          clearTimeout(timer);
+          pendingAsks.delete(req.askId);
+          resolve({ decision: 'deny', reason: 'No window available.' });
+        }
+      });
+    },
+  };
+
+  function respondToAsk(
+    askId: string,
+    decision: AskDecision,
+    streamId: string,
+    correlationId: string,
+    toolId: string,
+    path: string,
+    expectedHash?: string,
+  ): void {
+    const pending = pendingAsks.get(askId);
+    if (!pending) return;
+
+    clearTimeout(pending.timer);
+    pendingAsks.delete(askId);
+
+    if (decision === 'allow_once') {
+      const grantToken: AskGrantToken = {
+        grantId: crypto.randomUUID(),
+        streamId,
+        correlationId,
+        toolId,
+        path,
+        expectedHash,
+        usedAt: null,
+      };
+      pending.resolve({ decision: 'allow_once', grantToken });
+    } else {
+      pending.resolve({ decision: 'deny' });
+    }
+  }
+
+  return { gate, respondToAsk };
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
 
 export function registerIpcHandlers(
   client: GovernorClient | null,
@@ -30,6 +132,8 @@ export function registerIpcHandlers(
   templateManager: TemplateManager | null = null,
   fileManager: FileManager | null = null,
   toolLoop: ToolLoop | null = null,
+  activityManager: ActivityManager | null = null,
+  askGateState: AskGateState | null = null,
 ): void {
   // --- Daemon Resolver ---
 
@@ -88,6 +192,7 @@ export function registerIpcHandlers(
             win.webContents.send(Channels.CHAT_FILE_ACTION, { streamId, action });
           },
         },
+        streamId,
       ).catch((err) => {
         win.webContents.send(Channels.CHAT_STREAM_END, {
           streamId,
@@ -111,6 +216,29 @@ export function registerIpcHandlers(
     );
 
     return { streamId };
+  });
+
+  // --- Chat Stream Stop ---
+
+  ipcMain.handle(Channels.CHAT_STREAM_STOP, async (_event, streamId: unknown) => {
+    if (typeof streamId !== 'string') return;
+    toolLoop?.stop(streamId);
+  });
+
+  // --- Ask ---
+
+  ipcMain.handle(Channels.CHAT_ASK_RESPOND, async (_event, askId: unknown, decision: unknown, streamId: unknown, correlationId: unknown, toolId: unknown, filePath: unknown, expectedHash: unknown) => {
+    if (!askGateState) return;
+    if (typeof askId !== 'string' || typeof decision !== 'string') return;
+    askGateState.respondToAsk(
+      askId,
+      decision as AskDecision,
+      String(streamId ?? ''),
+      String(correlationId ?? ''),
+      String(toolId ?? ''),
+      String(filePath ?? ''),
+      typeof expectedHash === 'string' ? expectedHash : undefined,
+    );
   });
 
   ipcMain.handle(Channels.CHAT_MODELS, async () => {
@@ -183,11 +311,32 @@ export function registerIpcHandlers(
     return fileManager.writeFile(relativePath, content);
   });
 
+  ipcMain.handle(Channels.FILES_OVERWRITE, async (_event, relativePath: unknown, content: unknown, expectedHash: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof relativePath !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Path must be a string.' };
+    }
+    if (typeof content !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Content must be a string.' };
+    }
+    if (typeof expectedHash !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Expected hash must be a string.' };
+    }
+    return fileManager.overwriteFile(relativePath, content, expectedHash);
+  });
+
   ipcMain.handle(Channels.FILES_LIST, async (_event, relativePath: unknown) => {
     if (!fileManager) throw new Error('File manager not available.');
     if (typeof relativePath !== 'string') {
       return { ok: false, code: 'PATH_DENIED', message: 'Path must be a string.' };
     }
     return fileManager.listDir(relativePath);
+  });
+
+  // --- Activity Feed ---
+
+  ipcMain.handle(Channels.ACTIVITY_LIST, async (_event, limit?: number) => {
+    if (!activityManager) return { events: [] };
+    return { events: activityManager.getRecent(typeof limit === 'number' ? limit : 200) };
   });
 }

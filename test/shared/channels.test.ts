@@ -33,8 +33,23 @@ describe('Channels', () => {
   it('has file channels', () => {
     expect(Channels.FILES_READ).toBe('files:read');
     expect(Channels.FILES_WRITE).toBe('files:write');
+    expect(Channels.FILES_OVERWRITE).toBe('files:overwrite');
     expect(Channels.FILES_LIST).toBe('files:list');
     expect(Channels.CHAT_FILE_ACTION).toBe('clerk:chat:file-action');
+  });
+
+  it('has stream control channels', () => {
+    expect(Channels.CHAT_STREAM_STOP).toBe('clerk:chat:stream:stop');
+  });
+
+  it('has ask channels', () => {
+    expect(Channels.CHAT_ASK_REQUEST).toBe('clerk:chat:ask:request');
+    expect(Channels.CHAT_ASK_RESPOND).toBe('clerk:chat:ask:respond');
+  });
+
+  it('has activity channels', () => {
+    expect(Channels.ACTIVITY_LIST).toBe('activity:list');
+    expect(Channels.ACTIVITY_EVENT).toBe('activity:event');
   });
 
   it('all values are unique', () => {

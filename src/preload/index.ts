@@ -59,8 +59,24 @@ const api: ClerkAPI = {
     ipcRenderer.invoke(Channels.FILES_READ, relativePath),
   fileWrite: (relativePath: string, content: string) =>
     ipcRenderer.invoke(Channels.FILES_WRITE, relativePath, content),
+  fileOverwrite: (relativePath: string, content: string, expectedHash: string) =>
+    ipcRenderer.invoke(Channels.FILES_OVERWRITE, relativePath, content, expectedHash),
   fileList: (relativePath: string) =>
     ipcRenderer.invoke(Channels.FILES_LIST, relativePath),
+
+  // Chat stream control
+  chatStreamStop: (streamId: string) =>
+    ipcRenderer.invoke(Channels.CHAT_STREAM_STOP, streamId),
+
+  // Ask (interactive approval)
+  onAskRequest: (cb) => {
+    ipcRenderer.on(Channels.CHAT_ASK_REQUEST, (_e, data) => cb(data));
+  },
+  offAskRequest: () => {
+    ipcRenderer.removeAllListeners(Channels.CHAT_ASK_REQUEST);
+  },
+  askRespond: (askId: string, decision) =>
+    ipcRenderer.invoke(Channels.CHAT_ASK_RESPOND, askId, decision),
 
   // File action events (tool loop)
   onFileAction: (cb) => {
@@ -68,6 +84,15 @@ const api: ClerkAPI = {
   },
   offFileAction: () => {
     ipcRenderer.removeAllListeners(Channels.CHAT_FILE_ACTION);
+  },
+
+  // Activity feed
+  activityList: (limit?) => ipcRenderer.invoke(Channels.ACTIVITY_LIST, limit),
+  onActivityEvent: (cb) => {
+    ipcRenderer.on(Channels.ACTIVITY_EVENT, (_e, event) => cb(event));
+  },
+  offActivityEvent: () => {
+    ipcRenderer.removeAllListeners(Channels.ACTIVITY_EVENT);
   },
 
   // Connection state

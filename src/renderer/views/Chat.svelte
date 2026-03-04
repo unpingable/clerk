@@ -5,9 +5,11 @@
   import ChatMessage from '../components/ChatMessage.svelte';
   import ChatInput from '../components/ChatInput.svelte';
   import ViolationCard from '../components/ViolationCard.svelte';
+  import AskCard from '../components/AskCard.svelte';
 
   const messages = $derived(chat.getMessages());
   const violation = $derived(chat.getPendingViolation());
+  const pendingAsk = $derived(chat.getPendingAsk());
   const error = $derived(chat.getError());
 
   let scrollEl: HTMLDivElement | undefined = $state();
@@ -38,6 +40,12 @@
       {#each messages as message (message.id)}
         <ChatMessage {message} />
       {/each}
+    {/if}
+
+    {#if pendingAsk}
+      <div class="ask-wrap">
+        <AskCard ask={pendingAsk} onRespond={(d) => chat.respondToAsk(d)} />
+      </div>
     {/if}
 
     {#if violation}
@@ -92,6 +100,9 @@
   .hint {
     color: var(--clerk-text-muted);
     font-style: italic;
+  }
+  .ask-wrap {
+    padding: 0 var(--sp-md);
   }
   .violation-wrap {
     padding: 0 var(--sp-md);

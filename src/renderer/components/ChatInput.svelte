@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Chat input textarea with send button. -->
+<!-- Chat input textarea with send/stop button. -->
 <script lang="ts">
   import * as chat from '../stores/chat.svelte';
 
@@ -18,6 +18,11 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && streaming) {
+      e.preventDefault();
+      chat.stopStreaming();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -35,14 +40,24 @@
     rows="1"
     class="input"
   ></textarea>
-  <button
-    class="send-btn"
-    onclick={handleSend}
-    disabled={!canSend || !inputValue.trim()}
-    title="Send (Enter)"
-  >
-    Send
-  </button>
+  {#if streaming}
+    <button
+      class="stop-btn"
+      onclick={() => chat.stopStreaming()}
+      title="Stop (Escape)"
+    >
+      Stop
+    </button>
+  {:else}
+    <button
+      class="send-btn"
+      onclick={handleSend}
+      disabled={!canSend || !inputValue.trim()}
+      title="Send (Enter)"
+    >
+      Send
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -94,5 +109,17 @@
   .send-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  .stop-btn {
+    padding: 10px 20px;
+    background: var(--clerk-block, #e05252);
+    color: white;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-md);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .stop-btn:hover {
+    filter: brightness(0.9);
   }
 </style>

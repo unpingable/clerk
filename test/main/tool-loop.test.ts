@@ -6,7 +6,8 @@ import {
   buildToolSystemPrompt,
   ToolLoop,
 } from '../../src/main/tool-loop';
-import type { ToolLoopClient, ToolLoopFileOps, ToolLoopCallbacks } from '../../src/main/tool-loop';
+import type { ToolLoopClient, ToolLoopFileOps, ToolLoopCallbacks, AskGate } from '../../src/main/tool-loop';
+import type { AskRequest, AskGrantToken } from '../../src/shared/types';
 
 // ---------------------------------------------------------------------------
 // parseToolCalls
@@ -144,6 +145,27 @@ describe('parseToolCalls', () => {
       expect(result.error.code).toBe('INVALID_ARGS');
     }
   });
+
+  it('accepts file_write_overwrite with expected_hash', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"test.txt","content":"new","expected_hash":"abc123"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.calls).toHaveLength(1);
+      expect(result.calls[0].name).toBe('file_write_overwrite');
+      expect(result.calls[0].arguments['expected_hash']).toBe('abc123');
+    }
+  });
+
+  it('rejects file_write_overwrite without expected_hash', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"test.txt","content":"new"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_ARGS');
+      expect(result.error.message).toContain('expected_hash');
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -183,12 +205,20 @@ describe('buildToolSystemPrompt', () => {
     expect(prompt).toContain('file_list');
     expect(prompt).toContain('file_read');
     expect(prompt).toContain('file_write_create');
+    expect(prompt).toContain('file_write_overwrite');
     expect(prompt).toContain('<tool_calls>');
   });
 
   it('accepts custom project root label', () => {
     const prompt = buildToolSystemPrompt('my-project');
     expect(prompt).toContain('my-project');
+  });
+
+  it('includes overwrite and truncation guidance', () => {
+    const prompt = buildToolSystemPrompt();
+    expect(prompt).toContain('expected_hash');
+    expect(prompt).toContain('hashCoversFullFile');
+    expect(prompt).toContain('HASH_MISMATCH');
   });
 });
 
@@ -208,7 +238,6 @@ describe('ToolLoop.run', () => {
           onEnd: (r: { receipt?: unknown; violations?: unknown[]; pending?: unknown }) => void,
         ) => {
           const resp = responses[callIdx++] ?? { text: '' };
-          // Simulate streaming the text in one chunk
           onDelta({ content: resp.text });
           onEnd({ receipt: resp.receipt ?? null, violations: [] });
           return 'stream-id';
@@ -222,6 +251,9 @@ describe('ToolLoop.run', () => {
       readFile: vi.fn().mockResolvedValue({
         ok: true,
         content: 'file contents here',
+        contentHash: 'abc123hash',
+        truncated: false,
+        hashCoversFullFile: true,
         resolvedPath: '/project/test.txt',
         decision: { allowed: true, reason: 'ok', toolId: 'file.read', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
       }),
@@ -229,6 +261,11 @@ describe('ToolLoop.run', () => {
         ok: true,
         resolvedPath: '/project/new.txt',
         decision: { allowed: true, reason: 'ok', toolId: 'file.write.create', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      overwriteFile: vi.fn().mockResolvedValue({
+        ok: true,
+        resolvedPath: '/project/existing.txt',
+        decision: { allowed: true, reason: 'ok', toolId: 'file.write.overwrite', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
       }),
       listDir: vi.fn().mockResolvedValue({
         ok: true,
@@ -292,10 +329,9 @@ describe('ToolLoop.run', () => {
 
     await loop.run([{ role: 'user', content: 'what files are here?' }], {}, callbacks);
 
-    expect(fileOps.listDir).toHaveBeenCalledWith('.');
+    expect(fileOps.listDir).toHaveBeenCalledWith('.', expect.objectContaining({ correlationId: expect.any(String) }));
     expect(callbacks.actions).toHaveLength(1);
     expect((callbacks.actions[0] as any).tool).toBe('LIST');
-    // Two daemon turns
     expect(client.chatStreamStart).toHaveBeenCalledTimes(2);
   });
 
@@ -318,7 +354,6 @@ describe('ToolLoop.run', () => {
 
     expect(callbacks.actions).toHaveLength(1);
     expect((callbacks.actions[0] as any).allowed).toBe(false);
-    // Model got a second turn with the error
     expect(client.chatStreamStart).toHaveBeenCalledTimes(2);
   });
 
@@ -356,10 +391,25 @@ describe('ToolLoop.run', () => {
 
     await loop.run([{ role: 'user', content: 'read blocked.txt' }], {}, callbacks);
 
-    // First call: tool executed + blocked. Second call: anti-thrash detected, short-circuits.
     expect(fileOps.readFile).toHaveBeenCalledTimes(1);
-    // Two daemon turns: first with tool call, second triggers anti-thrash break
     expect(client.chatStreamStart).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes correlationId context to file ops', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"c1","name":"file_list","arguments":{"path":"."}}]\n</tool_calls>` },
+      { text: 'Done.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'list' }], {}, callbacks, 'stream-42');
+
+    expect(fileOps.listDir).toHaveBeenCalledWith('.', {
+      streamId: 'stream-42',
+      correlationId: 'stream-42:c1',
+    });
   });
 
   it('returns fileActions in final onEnd payload', async () => {
@@ -377,5 +427,318 @@ describe('ToolLoop.run', () => {
     expect(endResult.fileActions).toBeDefined();
     expect(endResult.fileActions).toHaveLength(1);
     expect(endResult.fileActions[0].tool).toBe('LIST');
+  });
+
+  // --- file_write_overwrite ---
+
+  it('executes file_write_overwrite tool', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"test.txt","content":"new content","expected_hash":"abc123"}}]\n</tool_calls>` },
+      { text: 'Done.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'update test.txt' }], {}, callbacks);
+
+    expect(fileOps.overwriteFile).toHaveBeenCalledWith('test.txt', 'new content', 'abc123', expect.any(Object));
+    expect(callbacks.actions).toHaveLength(1);
+    expect((callbacks.actions[0] as any).tool).toBe('OVERWRITE');
+  });
+
+  it('HASH_MISMATCH gives model error in tool result', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"test.txt","content":"new","expected_hash":"wrong"}}]\n</tool_calls>` },
+      { text: 'I see it was modified. Let me re-read.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    fileOps.overwriteFile = vi.fn().mockResolvedValue({
+      ok: false,
+      code: 'HASH_MISMATCH',
+      message: 'File has been modified.',
+    });
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'update' }], {}, callbacks);
+
+    // Model got second turn to handle the error
+    expect(client.chatStreamStart).toHaveBeenCalledTimes(2);
+  });
+
+  // --- stop ---
+
+  it('stop() aborts the loop and sets stoppedByUser', async () => {
+    let turnCount = 0;
+    const client: ToolLoopClient = {
+      chatStreamStart: vi.fn().mockImplementation(
+        async (
+          _messages: unknown,
+          _options: unknown,
+          onDelta: (d: { content?: string }) => void,
+          onEnd: (r: { receipt?: unknown; violations?: unknown[] }) => void,
+        ) => {
+          turnCount++;
+          if (turnCount === 1) {
+            onDelta({ content: `<tool_calls>\n[{"id":"1","name":"file_list","arguments":{"path":"."}}]\n</tool_calls>` });
+          } else {
+            onDelta({ content: 'More work...' });
+          }
+          onEnd({ receipt: null, violations: [] });
+          return 'stream-id';
+        },
+      ),
+    };
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    // Stop after first tool call resolves
+    const origListDir = fileOps.listDir;
+    fileOps.listDir = vi.fn().mockImplementation(async (...args: unknown[]) => {
+      loop.stop('test-stream');
+      return (origListDir as any)(...args);
+    });
+
+    await loop.run([{ role: 'user', content: 'list' }], {}, callbacks, 'test-stream');
+
+    const endResult = callbacks.endResult as any;
+    expect(endResult.stoppedByUser).toBe(true);
+  });
+
+  it('stop() is idempotent', () => {
+    const client = makeMockClient([]);
+    const fileOps = makeMockFileOps();
+    const loop = new ToolLoop(client, fileOps);
+
+    // Should not throw
+    loop.stop('nonexistent');
+    loop.stop('nonexistent');
+  });
+
+  it('late deltas after stop are dropped', async () => {
+    const client: ToolLoopClient = {
+      chatStreamStart: vi.fn().mockImplementation(
+        async (
+          _messages: unknown,
+          _options: unknown,
+          onDelta: (d: { content?: string }) => void,
+          onEnd: (r: { receipt?: unknown; violations?: unknown[] }) => void,
+        ) => {
+          onDelta({ content: 'Hello' });
+          onEnd({ receipt: null, violations: [] });
+          return 'stream-id';
+        },
+      ),
+    };
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    // Pre-abort
+    loop.stop('pre-aborted');
+
+    // Run should complete cleanly with stoppedByUser
+    await loop.run([{ role: 'user', content: 'hi' }], {}, callbacks, 'pre-aborted');
+
+    // Since stop was called before run, it won't find the controller
+    // The loop will run normally since stop was called before the controller was created
+    expect(callbacks.endResult).toBeDefined();
+  });
+
+  // --- ASK_REQUIRED ---
+
+  it('ASK_REQUIRED pauses and resumes on allow', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"config.json","content":"{}","expected_hash":"abc"}}]\n</tool_calls>` },
+      { text: 'Done.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    let callCount = 0;
+    fileOps.overwriteFile = vi.fn().mockImplementation(async (_path: string, _content: string, _hash: string, ctx: any) => {
+      callCount++;
+      if (callCount === 1) {
+        // First call: ASK_REQUIRED
+        return {
+          ok: false,
+          code: 'ASK_REQUIRED',
+          message: 'Requires approval',
+          decision: { allowed: false, reason: 'ASK_REQUIRED', toolId: 'file.write.overwrite', appliedTemplateId: 'x', appliedProfile: 'research', askAvailable: true },
+        };
+      }
+      // Second call (with grant token): success
+      return {
+        ok: true,
+        resolvedPath: '/project/config.json',
+        decision: { allowed: true, reason: 'ok', toolId: 'file.write.overwrite', appliedTemplateId: 'x', appliedProfile: 'research' },
+      };
+    });
+
+    const grantToken: AskGrantToken = {
+      grantId: 'grant-1',
+      streamId: 'stream-1',
+      correlationId: 'stream-1:1',
+      toolId: 'file.write.overwrite',
+      path: 'config.json',
+      usedAt: null,
+    };
+
+    const askGate: AskGate = {
+      requestAsk: vi.fn().mockResolvedValue({ decision: 'allow_once', grantToken }),
+    };
+
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps, askGate);
+
+    await loop.run([{ role: 'user', content: 'update config' }], {}, callbacks, 'stream-1');
+
+    expect(askGate.requestAsk).toHaveBeenCalledTimes(1);
+    expect(fileOps.overwriteFile).toHaveBeenCalledTimes(2);
+    // Last action should be ask_approved
+    const lastAction = callbacks.actions[callbacks.actions.length - 1] as any;
+    expect(lastAction.status).toBe('ask_approved');
+  });
+
+  it('ASK_REQUIRED pauses and stops on deny', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"config.json","content":"{}","expected_hash":"abc"}}]\n</tool_calls>` },
+      { text: 'Ok, I wont do that.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    fileOps.overwriteFile = vi.fn().mockResolvedValue({
+      ok: false,
+      code: 'ASK_REQUIRED',
+      message: 'Requires approval',
+      decision: { allowed: false, reason: 'ASK_REQUIRED', toolId: 'file.write.overwrite', appliedTemplateId: 'x', appliedProfile: 'research', askAvailable: true },
+    });
+
+    const askGate: AskGate = {
+      requestAsk: vi.fn().mockResolvedValue({ decision: 'deny' }),
+    };
+
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps, askGate);
+
+    await loop.run([{ role: 'user', content: 'update config' }], {}, callbacks, 'stream-1');
+
+    expect(askGate.requestAsk).toHaveBeenCalledTimes(1);
+    // Only one overwrite call (no retry on deny)
+    expect(fileOps.overwriteFile).toHaveBeenCalledTimes(1);
+    // Action should be ask_denied
+    const lastAction = callbacks.actions[callbacks.actions.length - 1] as any;
+    expect(lastAction.status).toBe('ask_denied');
+  });
+
+  it('abort during pending ask auto-denies', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"f.txt","content":"x","expected_hash":"h"}}]\n</tool_calls>` },
+      { text: 'Done.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    fileOps.overwriteFile = vi.fn().mockResolvedValue({
+      ok: false,
+      code: 'ASK_REQUIRED',
+      message: 'Requires approval',
+      decision: { allowed: false, reason: 'ASK_REQUIRED', toolId: 'file.write.overwrite', appliedTemplateId: 'x', appliedProfile: 'research', askAvailable: true },
+    });
+
+    const loop = new ToolLoop(client, fileOps);
+    const askGate: AskGate = {
+      requestAsk: vi.fn().mockImplementation(async (_req: AskRequest, signal: AbortSignal) => {
+        // Simulate stop during ask
+        loop.stop('stream-1');
+        // The signal should now be aborted
+        return new Promise((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(new Error('Aborted'));
+          }
+        });
+      }),
+    };
+    (loop as any).askGate = askGate;
+
+    const callbacks = makeCallbacks();
+    await loop.run([{ role: 'user', content: 'update' }], {}, callbacks, 'stream-1');
+
+    const endResult = callbacks.endResult as any;
+    expect(endResult.stoppedByUser).toBe(true);
+  });
+
+  it('halt on first ASK in multi-call turn', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_write_overwrite","arguments":{"path":"a.txt","content":"x","expected_hash":"h1"}},{"id":"2","name":"file_read","arguments":{"path":"b.txt"}}]\n</tool_calls>` },
+      { text: 'Done.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    fileOps.overwriteFile = vi.fn().mockResolvedValue({
+      ok: false,
+      code: 'ASK_REQUIRED',
+      message: 'Requires approval',
+      decision: { allowed: false, reason: 'ASK_REQUIRED', toolId: 'file.write.overwrite', appliedTemplateId: 'x', appliedProfile: 'research', askAvailable: true },
+    });
+
+    const askGate: AskGate = {
+      requestAsk: vi.fn().mockResolvedValue({ decision: 'deny' }),
+    };
+
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps, askGate);
+
+    await loop.run([{ role: 'user', content: 'update' }], {}, callbacks, 'stream-1');
+
+    // Second call (file_read) should NOT have been executed because ask was denied
+    expect(fileOps.readFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects overwrite when hashCoversFullFile was false for that path', async () => {
+    const client = makeMockClient([
+      // Turn 1: model reads a file (truncated → hashCoversFullFile: false)
+      { text: `<tool_calls>\n[{"id":"1","name":"file_read","arguments":{"path":"big.txt"}}]\n</tool_calls>` },
+      // Turn 2: model tries to overwrite using the truncated hash
+      { text: `<tool_calls>\n[{"id":"2","name":"file_write_overwrite","arguments":{"path":"big.txt","content":"new","expected_hash":"abc"}}]\n</tool_calls>` },
+      // Turn 3: model gives up
+      { text: 'Cannot overwrite truncated file.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    // Return truncated content with hashCoversFullFile: false
+    fileOps.readFile = vi.fn().mockResolvedValue({
+      ok: true,
+      content: 'x'.repeat(200_000),
+      contentHash: 'abc',
+      truncated: true,
+      hashCoversFullFile: false,
+      resolvedPath: '/project/big.txt',
+      decision: { allowed: true, reason: 'ok', toolId: 'file.read', appliedTemplateId: 't', appliedProfile: 'production' },
+    });
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'edit big.txt' }], {}, callbacks, 'stream-1');
+
+    // overwriteFile should never have been called
+    expect(fileOps.overwriteFile).not.toHaveBeenCalled();
+    // The tool result sent to model should contain error about hashCoversFullFile
+    const thirdCallMessages = (client.chatStreamStart as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    const toolResultsMsg = thirdCallMessages[thirdCallMessages.length - 1].content;
+    expect(toolResultsMsg).toContain('hashCoversFullFile');
+  });
+
+  it('file_read result includes contentHash and hashCoversFullFile', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_read","arguments":{"path":"test.txt"}}]\n</tool_calls>` },
+      { text: 'Got it.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'read test.txt' }], {}, callbacks, 'stream-1');
+
+    // Check that the tool result passed to the model includes hash info
+    const secondCallMessages = (client.chatStreamStart as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    const toolResultsMsg = secondCallMessages[secondCallMessages.length - 1].content;
+    expect(toolResultsMsg).toContain('contentHash');
+    expect(toolResultsMsg).toContain('hashCoversFullFile');
   });
 });

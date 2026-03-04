@@ -6,9 +6,11 @@
   import ModelPicker from './components/ModelPicker.svelte';
   import TemplatePicker from './components/TemplatePicker.svelte';
   import DaemonSetup from './components/DaemonSetup.svelte';
+  import ActivityPanel from './components/ActivityPanel.svelte';
   import * as conn from './stores/connection.svelte';
   import * as chat from './stores/chat.svelte';
   import * as tmpl from './stores/template.svelte';
+  import * as activity from './stores/activity.svelte';
   import { api } from '$lib/api';
   import type { DaemonStatus, DaemonStatusErr } from '$shared/types';
 
@@ -27,12 +29,15 @@
         api.onChatDelta(chat.onDelta);
         api.onChatEnd(chat.onEnd);
         api.onFileAction(chat.onFileAction);
+        api.onAskRequest(chat.onAskRequest);
+        api.onActivityEvent(activity.onEvent);
         api.onConnectionState((state) => {
           conn.setConnectionState(state as 'connected' | 'degraded' | 'disconnected');
         });
         conn.startPolling(3000);
         chat.loadModels();
         tmpl.initialize();
+        activity.loadEvents();
       }
     }).catch(() => {
       loading = false;
@@ -43,6 +48,8 @@
       api.offChatDelta();
       api.offChatEnd();
       api.offFileAction();
+      api.offAskRequest();
+      api.offActivityEvent();
       api.offConnectionState();
     };
   });
@@ -63,7 +70,10 @@
     {#if loading}
       <div class="loading">Starting up...</div>
     {:else if daemonOk}
-      <Chat />
+      <div class="split">
+        <div class="split-chat"><Chat /></div>
+        <div class="split-activity"><ActivityPanel /></div>
+      </div>
     {:else if daemonStatus}
       <DaemonSetup status={daemonStatus as DaemonStatusErr} />
     {/if}
@@ -99,6 +109,18 @@
   }
   .main {
     flex: 1;
+    overflow: hidden;
+  }
+  .split {
+    display: flex;
+    height: 100%;
+  }
+  .split-chat {
+    flex: 65;
+    overflow: hidden;
+  }
+  .split-activity {
+    flex: 35;
     overflow: hidden;
   }
   .loading {

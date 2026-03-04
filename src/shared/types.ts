@@ -61,7 +61,38 @@ export interface ChatStreamEnd {
     violations?: ViolationRef[];
     pending?: PendingViolation | null;
     fileActions?: FileAction[];
+    stoppedByUser?: boolean;
   };
+}
+
+// --- Ask (interactive approval) ---
+
+export interface AskRequest {
+  askId: string;
+  streamId: string;
+  correlationId: string;
+  toolId: string;
+  path: string;
+  operationLabel: string;
+  contentSize?: number;
+  contentPreview?: string;
+}
+
+export type AskDecision = 'allow_once' | 'deny';
+
+export interface AskResponse {
+  askId: string;
+  decision: AskDecision;
+}
+
+export interface AskGrantToken {
+  grantId: string;
+  streamId: string;
+  correlationId: string;
+  toolId: string;
+  path: string;
+  expectedHash?: string;
+  usedAt: string | null;
 }
 
 export interface ModelInfo {
@@ -254,7 +285,16 @@ export type FileErrorCode =
   | 'IO_ERROR'
   | 'CONTENT_TOO_LARGE'
   | 'PATH_TOO_LONG'
-  | 'BINARY_FILE';
+  | 'BINARY_FILE'
+  | 'HASH_MISMATCH'
+  | 'ASK_REQUIRED';
+
+export type FileActionStatus =
+  | 'allowed'
+  | 'blocked'
+  | 'ask_pending'
+  | 'ask_approved'
+  | 'ask_denied';
 
 export interface ScopeDecision {
   allowed: boolean;
@@ -262,11 +302,15 @@ export interface ScopeDecision {
   toolId: string;
   appliedTemplateId: string;
   appliedProfile: string;
+  askAvailable?: boolean;
 }
 
 export interface FileReadResult {
   ok: true;
   content: string;
+  contentHash: string;
+  truncated: boolean;
+  hashCoversFullFile: boolean;
   resolvedPath: string;
   decision: ScopeDecision;
 }
@@ -298,8 +342,15 @@ export interface FileListResult {
   decision: ScopeDecision;
 }
 
+export interface FileOverwriteResult {
+  ok: true;
+  resolvedPath: string;
+  decision: ScopeDecision;
+}
+
 export type FileReadResponse = FileReadResult | FileErrorResult;
 export type FileWriteResponse = FileWriteResult | FileErrorResult;
+export type FileOverwriteResponse = FileOverwriteResult | FileErrorResult;
 export type FileListResponse = FileListResult | FileErrorResult;
 
 // --- File Actions (tool loop) ---
@@ -311,12 +362,17 @@ export interface FileAction {
   profile: string;
   error?: string;
   summary?: string;
+  status?: FileActionStatus;
 }
 
 export interface ChatFileActionEvent {
   streamId: string;
   action: FileAction;
 }
+
+// --- Activity Feed ---
+
+export type { ActivityKind, ActivityDecisionSource, ActivityFilter, AppliedModeInfo, ActivityEvent } from './activity-types.js';
 
 // --- Preload API shape ---
 
@@ -359,11 +415,25 @@ export interface ClerkAPI {
   // File operations
   fileRead(relativePath: string): Promise<FileReadResponse>;
   fileWrite(relativePath: string, content: string): Promise<FileWriteResponse>;
+  fileOverwrite(relativePath: string, content: string, expectedHash: string): Promise<FileOverwriteResponse>;
   fileList(relativePath: string): Promise<FileListResponse>;
+
+  // Chat stream control
+  chatStreamStop(streamId: string): Promise<void>;
+
+  // Ask (interactive approval)
+  onAskRequest(cb: (data: AskRequest) => void): void;
+  offAskRequest(): void;
+  askRespond(askId: string, decision: AskDecision): Promise<void>;
 
   // File action events (tool loop)
   onFileAction(cb: (data: ChatFileActionEvent) => void): void;
   offFileAction(): void;
+
+  // Activity feed
+  activityList(limit?: number): Promise<{ events: import('./activity-types.js').ActivityEvent[] }>;
+  onActivityEvent(cb: (event: import('./activity-types.js').ActivityEvent) => void): void;
+  offActivityEvent(): void;
 
   // Connection state events
   onConnectionState(cb: (state: string) => void): void;

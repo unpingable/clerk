@@ -11,23 +11,32 @@
  *
  * Safety: parse only after turn completes, last tag wins, must be at end,
  * cap payloads, relative paths only, anti-thrash limits.
+ *
+ * Slice 2 additions:
+ * - file_write_overwrite tool (hash-guarded atomic overwrite)
+ * - AbortSignal / stop() — user-initiated halt
+ * - AskGate — pause on ASK_REQUIRED, resume on user response
  */
 
 import type {
   FileReadResponse,
   FileWriteResponse,
+  FileOverwriteResponse,
   FileListResponse,
   FileAction,
   ReceiptRef,
   ViolationRef,
   PendingViolation,
+  AskRequest,
+  AskGrantToken,
 } from '../shared/types.js';
+import type { FileOpContext } from './file-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ToolName = 'file_list' | 'file_read' | 'file_write_create';
+export type ToolName = 'file_list' | 'file_read' | 'file_write_create' | 'file_write_overwrite';
 
 export type ToolCall = {
   id: string;
@@ -57,6 +66,7 @@ export interface ToolResult {
   result?: unknown;
   error?: string;
   blocked?: boolean;
+  askRequired?: boolean;
   suggestion?: string;
 }
 
@@ -72,9 +82,18 @@ export interface ToolLoopClient {
 
 /** Subset of FileManager used by ToolLoop for file operations. */
 export interface ToolLoopFileOps {
-  readFile(relativePath: string): Promise<FileReadResponse>;
-  writeFile(relativePath: string, content: string): Promise<FileWriteResponse>;
-  listDir(relativePath: string): Promise<FileListResponse>;
+  readFile(relativePath: string, ctx?: FileOpContext): Promise<FileReadResponse>;
+  writeFile(relativePath: string, content: string, ctx?: FileOpContext): Promise<FileWriteResponse>;
+  overwriteFile(relativePath: string, content: string, expectedHash: string, ctx?: FileOpContext): Promise<FileOverwriteResponse>;
+  listDir(relativePath: string, ctx?: FileOpContext): Promise<FileListResponse>;
+}
+
+/** AskGate — pauses tool loop on ASK_REQUIRED, resolves when user responds. */
+export interface AskGate {
+  requestAsk(
+    req: AskRequest,
+    signal: AbortSignal,
+  ): Promise<{ decision: 'allow_once' | 'deny'; grantToken?: AskGrantToken; reason?: string }>;
 }
 
 export interface ToolLoopCallbacks {
@@ -84,6 +103,7 @@ export interface ToolLoopCallbacks {
     violations?: ViolationRef[];
     pending?: PendingViolation | null;
     fileActions?: FileAction[];
+    stoppedByUser?: boolean;
   }) => void;
   onFileAction?: (action: FileAction) => void;
 }
@@ -127,7 +147,7 @@ At the end of your message, append:
 </tool_calls>
 
 - "id" must be a short string unique within the message.
-- "name" must be one of: "file_list", "file_read", "file_write_create".
+- "name" must be one of: "file_list", "file_read", "file_write_create", "file_write_overwrite".
 - "arguments" must be an object. Only the arguments listed below are allowed.
 
 AVAILABLE TOOLS:
@@ -144,15 +164,26 @@ AVAILABLE TOOLS:
 - Arguments:
   - path: string (relative file path)
 - Notes:
-  - Results may be truncated for large files. If truncated, request a narrower file or ask the user.
+  - Results include contentHash, truncated, and hashCoversFullFile fields.
+  - If hashCoversFullFile is false, the content was truncated and you cannot use the hash for overwrite. Ask the user or re-read a narrower range.
 
 3) file_write_create
 - Purpose: create a NEW file with UTF-8 text content. This tool FAILS if the file already exists.
 - Arguments:
   - path: string (relative file path; parent directories must already exist)
   - content: string (UTF-8 text)
+
+4) file_write_overwrite
+- Purpose: replace the ENTIRE contents of an existing file. Requires the expected_hash from a previous file_read.
+- Arguments:
+  - path: string (relative file path)
+  - content: string (the new file content)
+  - expected_hash: string (the contentHash from the most recent file_read of this file)
 - Notes:
-  - If you need to modify an existing file, you must ask the user for confirmation or propose creating a new file next to it.
+  - You MUST read the file first (file_read) to get the contentHash.
+  - The expected_hash must match the current file content. If the file was modified externally, you'll get a HASH_MISMATCH error — re-read the file and try again.
+  - Only works when hashCoversFullFile was true in the read result.
+  - If the operation requires user approval, you'll get an ASK_REQUIRED response. The app will ask the user and retry automatically.
 
 HOW TOOL RESULTS APPEAR:
 After you call tools, the app will reply with a user message containing:
@@ -307,6 +338,25 @@ function validateArgs(name: ToolName, args: Record<string, unknown>): ToolParseR
     return validateRelPath(p);
   }
 
+  if (name === 'file_write_overwrite') {
+    const err = requireOnly(['path', 'content', 'expected_hash']);
+    if (err) return { ok: false, error: { code: 'INVALID_ARGS', message: `file_write_overwrite: ${err}` } };
+
+    const p = args['path'];
+    const content = args['content'];
+    const hash = args['expected_hash'];
+    if (typeof p !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_write_overwrite: 'path' must be a string." } };
+    }
+    if (typeof content !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_write_overwrite: 'content' must be a string." } };
+    }
+    if (typeof hash !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_write_overwrite: 'expected_hash' must be a string." } };
+    }
+    return validateRelPath(p);
+  }
+
   // file_write_create
   {
     const err = requireOnly(['path', 'content']);
@@ -356,21 +406,33 @@ function isPlainObject(x: unknown): x is Record<string, unknown> {
 }
 
 function isToolName(x: unknown): x is ToolName {
-  return x === 'file_list' || x === 'file_read' || x === 'file_write_create';
+  return x === 'file_list' || x === 'file_read' || x === 'file_write_create' || x === 'file_write_overwrite';
 }
 
 // ---------------------------------------------------------------------------
 // Tool execution
 // ---------------------------------------------------------------------------
 
+/** Tracks hash coverage per file path — set by file_read, checked by file_write_overwrite. */
+type HashCoverageMap = Map<string, boolean>;
+
+interface ExecuteToolResult {
+  result: ToolResult;
+  action: FileAction;
+  askRequired?: boolean;
+  askInfo?: { toolId: string; path: string; content?: string; contentSize?: number };
+}
+
 async function executeTool(
   call: ToolCall,
   fileOps: ToolLoopFileOps,
-): Promise<{ result: ToolResult; action: FileAction }> {
+  ctx?: FileOpContext,
+  hashCoverage?: HashCoverageMap,
+): Promise<ExecuteToolResult> {
   const toolPath = (call.arguments['path'] as string) ?? '.';
 
   if (call.name === 'file_list') {
-    const resp = await fileOps.listDir(toolPath);
+    const resp = await fileOps.listDir(toolPath, ctx);
     if (resp.ok) {
       const action: FileAction = {
         tool: 'LIST',
@@ -378,6 +440,7 @@ async function executeTool(
         allowed: true,
         profile: resp.decision.appliedProfile,
         summary: `${resp.entries.length} entries${resp.truncated ? ' (truncated)' : ''}`,
+        status: 'allowed',
       };
       return {
         result: {
@@ -395,6 +458,7 @@ async function executeTool(
         allowed: !resp.decision || resp.code !== 'BLOCKED',
         profile: resp.decision?.appliedProfile ?? '',
         error: resp.message,
+        status: resp.code === 'BLOCKED' ? 'blocked' : undefined,
       };
       return {
         result: {
@@ -411,23 +475,34 @@ async function executeTool(
   }
 
   if (call.name === 'file_read') {
-    const resp = await fileOps.readFile(toolPath);
+    const resp = await fileOps.readFile(toolPath, ctx);
     if (resp.ok) {
       const truncated = resp.content.length > MAX_FILE_SIZE_FOR_RESULT;
       const content = truncated ? resp.content.slice(0, MAX_FILE_SIZE_FOR_RESULT) : resp.content;
+      const fullCoverage = !truncated && resp.hashCoversFullFile;
+      // Track hash coverage for overwrite enforcement
+      if (hashCoverage && resp.contentHash) {
+        hashCoverage.set(toolPath, fullCoverage);
+      }
       const action: FileAction = {
         tool: 'READ',
         path: toolPath,
         allowed: true,
         profile: resp.decision.appliedProfile,
         summary: truncated ? `${content.length} chars (truncated)` : `${content.length} chars`,
+        status: 'allowed',
       };
       return {
         result: {
           id: call.id,
           name: call.name,
           ok: true,
-          result: { content, truncated },
+          result: {
+            content,
+            truncated: truncated || resp.truncated,
+            contentHash: resp.contentHash,
+            hashCoversFullFile: fullCoverage,
+          },
         },
         action,
       };
@@ -438,6 +513,7 @@ async function executeTool(
         allowed: !resp.decision || resp.code !== 'BLOCKED',
         profile: resp.decision?.appliedProfile ?? '',
         error: resp.message,
+        status: resp.code === 'BLOCKED' ? 'blocked' : undefined,
       };
       return {
         result: {
@@ -453,10 +529,86 @@ async function executeTool(
     }
   }
 
+  if (call.name === 'file_write_overwrite') {
+    const content = call.arguments['content'] as string;
+    const expectedHash = call.arguments['expected_hash'] as string;
+
+    // Enforce hashCoversFullFile — reject overwrite if hash came from truncated read
+    if (hashCoverage && hashCoverage.has(toolPath) && !hashCoverage.get(toolPath)) {
+      const action: FileAction = {
+        tool: 'OVERWRITE',
+        path: toolPath,
+        allowed: false,
+        profile: '',
+        error: 'Hash is from a truncated read — cannot overwrite.',
+        status: 'blocked',
+      };
+      return {
+        result: {
+          id: call.id,
+          name: call.name,
+          ok: false,
+          error: 'The contentHash from your last file_read does not cover the full file (hashCoversFullFile was false). You cannot use it for overwrite. Re-read the file without truncation first.',
+          suggestion: 'Re-read the file to get a full content hash before overwriting.',
+        },
+        action,
+      };
+    }
+
+    const resp = await fileOps.overwriteFile(toolPath, content, expectedHash, ctx);
+    if (resp.ok) {
+      const action: FileAction = {
+        tool: 'OVERWRITE',
+        path: toolPath,
+        allowed: true,
+        profile: resp.decision.appliedProfile,
+        summary: `overwrote (${Buffer.byteLength(content, 'utf-8')} bytes)`,
+        status: 'allowed',
+      };
+      return {
+        result: { id: call.id, name: call.name, ok: true },
+        action,
+      };
+    } else {
+      const isAskRequired = resp.code === 'ASK_REQUIRED';
+      const action: FileAction = {
+        tool: 'OVERWRITE',
+        path: toolPath,
+        allowed: false,
+        profile: resp.decision?.appliedProfile ?? '',
+        error: resp.message,
+        status: isAskRequired ? 'ask_pending' : 'blocked',
+      };
+      return {
+        result: {
+          id: call.id,
+          name: call.name,
+          ok: false,
+          error: resp.message,
+          blocked: resp.code === 'BLOCKED',
+          askRequired: isAskRequired,
+          suggestion: isAskRequired
+            ? 'This operation requires user approval.'
+            : resp.code === 'BLOCKED' ? 'File overwrite is blocked by the current policy.'
+            : resp.code === 'HASH_MISMATCH' ? 'The file was modified since you last read it. Re-read the file and try again.'
+            : undefined,
+        },
+        action,
+        askRequired: isAskRequired,
+        askInfo: isAskRequired ? {
+          toolId: 'file.write.overwrite',
+          path: toolPath,
+          content,
+          contentSize: Buffer.byteLength(content, 'utf-8'),
+        } : undefined,
+      };
+    }
+  }
+
   // file_write_create
   {
     const content = call.arguments['content'] as string;
-    const resp = await fileOps.writeFile(toolPath, content);
+    const resp = await fileOps.writeFile(toolPath, content, ctx);
     if (resp.ok) {
       const action: FileAction = {
         tool: 'WRITE',
@@ -464,6 +616,7 @@ async function executeTool(
         allowed: true,
         profile: resp.decision.appliedProfile,
         summary: `created (${Buffer.byteLength(content, 'utf-8')} bytes)`,
+        status: 'allowed',
       };
       return {
         result: { id: call.id, name: call.name, ok: true },
@@ -476,6 +629,7 @@ async function executeTool(
         allowed: !resp.decision || resp.code !== 'BLOCKED',
         profile: resp.decision?.appliedProfile ?? '',
         error: resp.message,
+        status: resp.code === 'BLOCKED' ? 'blocked' : undefined,
       };
       return {
         result: {
@@ -509,17 +663,38 @@ function buildToolResultsMessage(results: ToolResult[]): string {
 export class ToolLoop {
   private client: ToolLoopClient;
   private fileOps: ToolLoopFileOps;
+  private askGate: AskGate | null;
 
-  constructor(client: ToolLoopClient, fileOps: ToolLoopFileOps) {
+  /** Active controllers per streamId — used for stop(). */
+  private activeControllers = new Map<string, AbortController>();
+
+  constructor(client: ToolLoopClient, fileOps: ToolLoopFileOps, askGate?: AskGate | null) {
     this.client = client;
     this.fileOps = fileOps;
+    this.askGate = askGate ?? null;
+  }
+
+  /** Idempotent stop — aborts the controller for the given stream. */
+  stop(streamId: string): void {
+    const controller = this.activeControllers.get(streamId);
+    if (controller && !controller.signal.aborted) {
+      controller.abort();
+    }
   }
 
   async run(
     messages: Array<{ role: string; content: string }>,
     options: Record<string, unknown>,
     callbacks: ToolLoopCallbacks,
+    streamId?: string,
   ): Promise<string> {
+    // Set up abort controller
+    const controller = new AbortController();
+    const { signal } = controller;
+    if (streamId) {
+      this.activeControllers.set(streamId, controller);
+    }
+
     // Prepend tool system prompt
     const systemMsg = { role: 'system', content: buildToolSystemPrompt() };
     const workingMessages = [systemMsg, ...messages];
@@ -528,126 +703,219 @@ export class ToolLoop {
     let turn = 0;
     const allFileActions: FileAction[] = [];
     const blockedCallSet = new Set<string>(); // track "tool:path" combos that were blocked
+    const hashCoverage: HashCoverageMap = new Map(); // track hash coverage per file path
     let lastReceipt: ReceiptRef | null = null;
     let lastViolations: ViolationRef[] = [];
     let lastPending: PendingViolation | null = null;
+    let stoppedByUser = false;
 
-    const deadline = Date.now() + RUN_TIMEOUT_MS;
+    // Active time tracking for ask suspension
+    let activeElapsedMs = 0;
+    let activeStartTime = Date.now();
 
-    while (turn < MAX_TURNS) {
-      if (Date.now() > deadline) {
-        break;
-      }
+    const isTimedOut = () => activeElapsedMs > RUN_TIMEOUT_MS;
 
-      turn++;
-
-      // Stream a turn
-      const { text, receipt, violations, pending } = await this.streamOneTurn(
-        workingMessages,
-        options,
-        callbacks.onDelta,
-      );
-
-      lastReceipt = receipt;
-      lastViolations = violations;
-      lastPending = pending;
-
-      // Parse tool calls from the completed text
-      const parseResult = parseToolCalls(text);
-
-      if (!parseResult.ok) {
-        // Inject parse error as tool result so model can recover
-        const errorResult: ToolResult = {
-          id: '_parse_error',
-          name: '_system',
-          ok: false,
-          error: parseResult.error.message,
-        };
-
-        // Strip failed tool calls from displayed text
-        const { text: cleanText } = stripToolCalls(text);
-        // Re-send delta with clean text (replace what was streamed)
-        // The delta callback already sent the raw text, so the renderer
-        // will see the full text. We just need to continue the loop.
-
-        workingMessages.push(
-          { role: 'assistant', content: text },
-          { role: 'user', content: buildToolResultsMessage([errorResult]) },
-        );
-        continue;
-      }
-
-      if (parseResult.calls.length === 0) {
-        // No tool calls — we're done
-        break;
-      }
-
-      // Check total call limit
-      if (totalCalls + parseResult.calls.length > MAX_CALLS_PER_RUN) {
-        const errorResult: ToolResult = {
-          id: '_limit',
-          name: '_system',
-          ok: false,
-          error: `Tool call limit reached (${MAX_CALLS_PER_RUN} total calls per conversation turn).`,
-        };
-        workingMessages.push(
-          { role: 'assistant', content: text },
-          { role: 'user', content: buildToolResultsMessage([errorResult]) },
-        );
-        break;
-      }
-
-      // Anti-thrash: check for repeated blocked calls
-      let shortCircuit = false;
-      for (const call of parseResult.calls) {
-        const key = `${call.name}:${call.arguments['path'] ?? ''}`;
-        if (blockedCallSet.has(key)) {
-          shortCircuit = true;
+    try {
+      while (turn < MAX_TURNS) {
+        // Check abort
+        if (signal.aborted) {
+          stoppedByUser = true;
           break;
         }
-      }
 
-      if (shortCircuit) {
-        const errorResult: ToolResult = {
-          id: '_anti_thrash',
-          name: '_system',
-          ok: false,
-          error: 'You are repeating a blocked tool call. Please take a different approach or ask the user.',
-        };
-        workingMessages.push(
-          { role: 'assistant', content: text },
-          { role: 'user', content: buildToolResultsMessage([errorResult]) },
+        // Check timeout (active time only)
+        activeElapsedMs += Date.now() - activeStartTime;
+        activeStartTime = Date.now();
+        if (isTimedOut()) break;
+
+        turn++;
+
+        // Stream a turn
+        const { text, receipt, violations, pending } = await this.streamOneTurn(
+          workingMessages,
+          options,
+          (delta) => {
+            if (!signal.aborted) callbacks.onDelta(delta);
+          },
         );
-        break;
-      }
 
-      // Strip tool calls from text before sending delta
-      const { text: displayText } = stripToolCalls(text);
-      // Note: deltas were already sent during streaming. The renderer will
-      // get the raw text with tool_calls in it. The final onEnd carries
-      // the clean text. For a polished UX you'd buffer, but this is Day 1.
-
-      // Execute tool calls
-      const results: ToolResult[] = [];
-      for (const call of parseResult.calls) {
-        const { result, action } = await executeTool(call, this.fileOps);
-        results.push(result);
-        allFileActions.push(action);
-        callbacks.onFileAction?.(action);
-
-        if (result.blocked) {
-          const key = `${call.name}:${call.arguments['path'] ?? ''}`;
-          blockedCallSet.add(key);
+        // Check abort after turn
+        if (signal.aborted) {
+          stoppedByUser = true;
+          break;
         }
 
-        totalCalls++;
-      }
+        lastReceipt = receipt;
+        lastViolations = violations;
+        lastPending = pending;
 
-      // Add assistant turn + tool results to conversation
-      workingMessages.push(
-        { role: 'assistant', content: text },
-        { role: 'user', content: buildToolResultsMessage(results) },
-      );
+        // Parse tool calls from the completed text
+        const parseResult = parseToolCalls(text);
+
+        if (!parseResult.ok) {
+          const errorResult: ToolResult = {
+            id: '_parse_error',
+            name: '_system',
+            ok: false,
+            error: parseResult.error.message,
+          };
+
+          workingMessages.push(
+            { role: 'assistant', content: text },
+            { role: 'user', content: buildToolResultsMessage([errorResult]) },
+          );
+          continue;
+        }
+
+        if (parseResult.calls.length === 0) {
+          break;
+        }
+
+        // Check total call limit
+        if (totalCalls + parseResult.calls.length > MAX_CALLS_PER_RUN) {
+          const errorResult: ToolResult = {
+            id: '_limit',
+            name: '_system',
+            ok: false,
+            error: `Tool call limit reached (${MAX_CALLS_PER_RUN} total calls per conversation turn).`,
+          };
+          workingMessages.push(
+            { role: 'assistant', content: text },
+            { role: 'user', content: buildToolResultsMessage([errorResult]) },
+          );
+          break;
+        }
+
+        // Anti-thrash: check for repeated blocked calls
+        let shortCircuit = false;
+        for (const call of parseResult.calls) {
+          const key = `${call.name}:${call.arguments['path'] ?? ''}`;
+          if (blockedCallSet.has(key)) {
+            shortCircuit = true;
+            break;
+          }
+        }
+
+        if (shortCircuit) {
+          const errorResult: ToolResult = {
+            id: '_anti_thrash',
+            name: '_system',
+            ok: false,
+            error: 'You are repeating a blocked tool call. Please take a different approach or ask the user.',
+          };
+          workingMessages.push(
+            { role: 'assistant', content: text },
+            { role: 'user', content: buildToolResultsMessage([errorResult]) },
+          );
+          break;
+        }
+
+        // Execute tool calls sequentially — halt on first ASK_REQUIRED
+        const results: ToolResult[] = [];
+        let haltedOnAsk = false;
+        const remainingCalls: ToolCall[] = [];
+
+        for (let i = 0; i < parseResult.calls.length; i++) {
+          if (signal.aborted) {
+            stoppedByUser = true;
+            break;
+          }
+
+          const call = parseResult.calls[i];
+          const correlationId = streamId ? `${streamId}:${call.id}` : call.id;
+          const ctx: FileOpContext = {
+            streamId,
+            correlationId,
+          };
+          const execResult = await executeTool(call, this.fileOps, ctx, hashCoverage);
+          results.push(execResult.result);
+          allFileActions.push(execResult.action);
+          callbacks.onFileAction?.(execResult.action);
+
+          if (execResult.result.blocked) {
+            const key = `${call.name}:${call.arguments['path'] ?? ''}`;
+            blockedCallSet.add(key);
+          }
+
+          // Handle ASK_REQUIRED
+          if (execResult.askRequired && this.askGate && execResult.askInfo) {
+            // Halt remaining calls
+            remainingCalls.push(...parseResult.calls.slice(i + 1));
+            haltedOnAsk = true;
+
+            // Suspend active time tracking
+            activeElapsedMs += Date.now() - activeStartTime;
+
+            const askId = correlationId;
+            const askReq: AskRequest = {
+              askId,
+              streamId: streamId ?? '',
+              correlationId,
+              toolId: execResult.askInfo.toolId,
+              path: execResult.askInfo.path,
+              operationLabel: `Replace contents of ${execResult.askInfo.path}`,
+              contentSize: execResult.askInfo.contentSize,
+              contentPreview: execResult.askInfo.content?.slice(0, 200),
+            };
+
+            let askResponse: { decision: 'allow_once' | 'deny'; grantToken?: AskGrantToken; reason?: string };
+            try {
+              askResponse = await this.askGate.requestAsk(askReq, signal);
+            } catch {
+              // Aborted or error — treat as deny
+              askResponse = { decision: 'deny', reason: 'STOPPED_BY_USER' };
+              stoppedByUser = signal.aborted;
+            }
+
+            // Resume active time tracking
+            activeStartTime = Date.now();
+
+            if (askResponse.decision === 'allow_once' && askResponse.grantToken) {
+              // Re-execute with grant token
+              const retryCtx: FileOpContext = {
+                streamId,
+                correlationId,
+                askGrantToken: askResponse.grantToken,
+              };
+              const retryResult = await executeTool(call, this.fileOps, retryCtx, hashCoverage);
+              // Replace the last result and action
+              results[results.length - 1] = retryResult.result;
+              allFileActions[allFileActions.length - 1] = { ...retryResult.action, status: 'ask_approved' };
+              callbacks.onFileAction?.({ ...retryResult.action, status: 'ask_approved' });
+            } else {
+              // Denied — update action status
+              allFileActions[allFileActions.length - 1] = { ...execResult.action, status: 'ask_denied' };
+              callbacks.onFileAction?.({ ...execResult.action, status: 'ask_denied' });
+
+              if (stoppedByUser) break;
+            }
+
+            // Continue with remaining calls if approved
+            if (askResponse.decision === 'allow_once') {
+              haltedOnAsk = false;
+            } else {
+              break; // Don't execute remaining calls on deny
+            }
+          }
+
+          totalCalls++;
+        }
+
+        if (stoppedByUser) break;
+
+        // Add assistant turn + tool results to conversation
+        workingMessages.push(
+          { role: 'assistant', content: text },
+          { role: 'user', content: buildToolResultsMessage(results) },
+        );
+
+        // If halted on ask + denied, break the loop
+        if (haltedOnAsk) break;
+      }
+    } finally {
+      if (streamId) {
+        this.activeControllers.delete(streamId);
+      }
     }
 
     // Final onEnd with accumulated file actions
@@ -656,6 +924,7 @@ export class ToolLoop {
       violations: lastViolations,
       pending: lastPending,
       fileActions: allFileActions.length > 0 ? allFileActions : undefined,
+      stoppedByUser: stoppedByUser || undefined,
     });
 
     return 'done';
