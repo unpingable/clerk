@@ -27,6 +27,9 @@
   <div class="body">
     <div class="operation">{ask.operationLabel}</div>
     <div class="path">{ask.path}</div>
+    {#if ask.toPath}
+      <div class="path">&rarr; {ask.toPath}</div>
+    {/if}
     {#if sizeLabel}
       <div class="meta">{sizeLabel}</div>
     {/if}

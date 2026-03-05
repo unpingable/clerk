@@ -35,6 +35,13 @@ describe('Channels', () => {
     expect(Channels.FILES_WRITE).toBe('files:write');
     expect(Channels.FILES_OVERWRITE).toBe('files:overwrite');
     expect(Channels.FILES_LIST).toBe('files:list');
+    expect(Channels.FILES_MKDIR).toBe('files:mkdir');
+    expect(Channels.FILES_COPY).toBe('files:copy');
+    expect(Channels.FILES_MOVE).toBe('files:move');
+    expect(Channels.FILES_DELETE).toBe('files:delete');
+    expect(Channels.FILES_FIND).toBe('files:find');
+    expect(Channels.FILES_GREP).toBe('files:grep');
+    expect(Channels.FILES_PATCH).toBe('files:patch');
     expect(Channels.CHAT_FILE_ACTION).toBe('clerk:chat:file-action');
   });
 

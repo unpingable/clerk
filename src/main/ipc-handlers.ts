@@ -32,7 +32,7 @@ const ASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface AskGateState {
   gate: AskGate;
-  respondToAsk: (askId: string, decision: AskDecision, streamId: string, correlationId: string, toolId: string, path: string, expectedHash?: string) => void;
+  respondToAsk: (askId: string, decision: AskDecision) => void;
 }
 
 export function makeAskGate(getWin: () => BrowserWindow | undefined): AskGateState {
@@ -40,6 +40,7 @@ export function makeAskGate(getWin: () => BrowserWindow | undefined): AskGateSta
     resolve: (result: { decision: 'allow_once' | 'deny'; grantToken?: AskGrantToken; reason?: string }) => void;
     timer: ReturnType<typeof setTimeout>;
     signal: AbortSignal;
+    req: AskRequest;
   }>();
 
   const gate: AskGate = {
@@ -71,7 +72,7 @@ export function makeAskGate(getWin: () => BrowserWindow | undefined): AskGateSta
 
         signal.addEventListener('abort', onAbort, { once: true });
 
-        pendingAsks.set(req.askId, { resolve, timer, signal });
+        pendingAsks.set(req.askId, { resolve, timer, signal, req });
 
         // Send ask request to renderer
         const win = getWin();
@@ -90,11 +91,6 @@ export function makeAskGate(getWin: () => BrowserWindow | undefined): AskGateSta
   function respondToAsk(
     askId: string,
     decision: AskDecision,
-    streamId: string,
-    correlationId: string,
-    toolId: string,
-    path: string,
-    expectedHash?: string,
   ): void {
     const pending = pendingAsks.get(askId);
     if (!pending) return;
@@ -103,13 +99,15 @@ export function makeAskGate(getWin: () => BrowserWindow | undefined): AskGateSta
     pendingAsks.delete(askId);
 
     if (decision === 'allow_once') {
+      const { req } = pending;
       const grantToken: AskGrantToken = {
         grantId: crypto.randomUUID(),
-        streamId,
-        correlationId,
-        toolId,
-        path,
-        expectedHash,
+        streamId: req.streamId,
+        correlationId: req.correlationId,
+        toolId: req.toolId,
+        path: req.path,
+        toPath: req.toPath,
+        expectedHash: req.expectedHash,
         usedAt: null,
       };
       pending.resolve({ decision: 'allow_once', grantToken });
@@ -227,18 +225,10 @@ export function registerIpcHandlers(
 
   // --- Ask ---
 
-  ipcMain.handle(Channels.CHAT_ASK_RESPOND, async (_event, askId: unknown, decision: unknown, streamId: unknown, correlationId: unknown, toolId: unknown, filePath: unknown, expectedHash: unknown) => {
+  ipcMain.handle(Channels.CHAT_ASK_RESPOND, async (_event, askId: unknown, decision: unknown) => {
     if (!askGateState) return;
     if (typeof askId !== 'string' || typeof decision !== 'string') return;
-    askGateState.respondToAsk(
-      askId,
-      decision as AskDecision,
-      String(streamId ?? ''),
-      String(correlationId ?? ''),
-      String(toolId ?? ''),
-      String(filePath ?? ''),
-      typeof expectedHash === 'string' ? expectedHash : undefined,
-    );
+    askGateState.respondToAsk(askId, decision as AskDecision);
   });
 
   ipcMain.handle(Channels.CHAT_MODELS, async () => {
@@ -331,6 +321,76 @@ export function registerIpcHandlers(
       return { ok: false, code: 'PATH_DENIED', message: 'Path must be a string.' };
     }
     return fileManager.listDir(relativePath);
+  });
+
+  ipcMain.handle(Channels.FILES_MKDIR, async (_event, relativePath: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof relativePath !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Path must be a string.' };
+    }
+    return fileManager.mkdir(relativePath);
+  });
+
+  ipcMain.handle(Channels.FILES_COPY, async (_event, srcRelative: unknown, destRelative: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof srcRelative !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Source path must be a string.' };
+    }
+    if (typeof destRelative !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Destination path must be a string.' };
+    }
+    return fileManager.copyFile(srcRelative, destRelative);
+  });
+
+  ipcMain.handle(Channels.FILES_MOVE, async (_event, srcRelative: unknown, destRelative: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof srcRelative !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Source path must be a string.' };
+    }
+    if (typeof destRelative !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Destination path must be a string.' };
+    }
+    return fileManager.moveFile(srcRelative, destRelative);
+  });
+
+  ipcMain.handle(Channels.FILES_DELETE, async (_event, relativePath: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof relativePath !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Path must be a string.' };
+    }
+    return fileManager.deleteFile(relativePath);
+  });
+
+  ipcMain.handle(Channels.FILES_PATCH, async (_event, relativePath: unknown, patch: unknown, expectedHash: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof relativePath !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Path must be a string.' };
+    }
+    if (typeof patch !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Patch must be a string.' };
+    }
+    if (typeof expectedHash !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Expected hash must be a string.' };
+    }
+    return fileManager.patchFile(relativePath, patch, expectedHash);
+  });
+
+  ipcMain.handle(Channels.FILES_FIND, async (_event, basePath: unknown, pattern: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof basePath !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Base path must be a string.' };
+    }
+    const pat = typeof pattern === 'string' ? pattern : undefined;
+    return fileManager.fileFind(basePath, pat);
+  });
+
+  ipcMain.handle(Channels.FILES_GREP, async (_event, query: unknown, basePath: unknown) => {
+    if (!fileManager) throw new Error('File manager not available.');
+    if (typeof query !== 'string') {
+      return { ok: false, code: 'PATH_DENIED', message: 'Query must be a string.' };
+    }
+    const bp = typeof basePath === 'string' ? basePath : '.';
+    return fileManager.fileGrep(query, bp);
   });
 
   // --- Activity Feed ---

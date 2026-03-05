@@ -41,6 +41,13 @@ export const Channels = {
   FILES_WRITE: 'files:write',
   FILES_OVERWRITE: 'files:overwrite',
   FILES_LIST: 'files:list',
+  FILES_MKDIR: 'files:mkdir',
+  FILES_COPY: 'files:copy',
+  FILES_MOVE: 'files:move',
+  FILES_DELETE: 'files:delete',
+  FILES_FIND: 'files:find',
+  FILES_GREP: 'files:grep',
+  FILES_PATCH: 'files:patch',
 
   // Chat stream control
   CHAT_STREAM_STOP: 'clerk:chat:stream:stop',

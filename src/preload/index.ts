@@ -63,6 +63,20 @@ const api: ClerkAPI = {
     ipcRenderer.invoke(Channels.FILES_OVERWRITE, relativePath, content, expectedHash),
   fileList: (relativePath: string) =>
     ipcRenderer.invoke(Channels.FILES_LIST, relativePath),
+  fileMkdir: (relativePath: string) =>
+    ipcRenderer.invoke(Channels.FILES_MKDIR, relativePath),
+  fileCopy: (srcRelative: string, destRelative: string) =>
+    ipcRenderer.invoke(Channels.FILES_COPY, srcRelative, destRelative),
+  fileMove: (srcRelative: string, destRelative: string) =>
+    ipcRenderer.invoke(Channels.FILES_MOVE, srcRelative, destRelative),
+  fileDelete: (relativePath: string) =>
+    ipcRenderer.invoke(Channels.FILES_DELETE, relativePath),
+  fileFind: (basePath: string, pattern?: string) =>
+    ipcRenderer.invoke(Channels.FILES_FIND, basePath, pattern),
+  fileGrep: (query: string, basePath?: string) =>
+    ipcRenderer.invoke(Channels.FILES_GREP, query, basePath),
+  filePatch: (relativePath: string, patch: string, expectedHash: string) =>
+    ipcRenderer.invoke(Channels.FILES_PATCH, relativePath, patch, expectedHash),
 
   // Chat stream control
   chatStreamStop: (streamId: string) =>

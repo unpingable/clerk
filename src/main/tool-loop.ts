@@ -22,7 +22,14 @@ import type {
   FileReadResponse,
   FileWriteResponse,
   FileOverwriteResponse,
+  FilePatchResponse,
   FileListResponse,
+  FileMkdirResponse,
+  FileCopyResponse,
+  FileMoveResponse,
+  FileDeleteResponse,
+  FileFindResponse,
+  FileGrepResponse,
   FileAction,
   ReceiptRef,
   ViolationRef,
@@ -31,12 +38,14 @@ import type {
   AskGrantToken,
 } from '../shared/types.js';
 import type { FileOpContext } from './file-manager.js';
+import type { ActivityRecorder } from './activity-manager.js';
+import type { ActivityKind } from '../shared/activity-types.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ToolName = 'file_list' | 'file_read' | 'file_write_create' | 'file_write_overwrite';
+export type ToolName = 'file_list' | 'file_read' | 'file_write_create' | 'file_write_overwrite' | 'file_patch' | 'file_mkdir' | 'file_copy' | 'file_move' | 'file_delete' | 'file_find' | 'file_grep';
 
 export type ToolCall = {
   id: string;
@@ -85,7 +94,14 @@ export interface ToolLoopFileOps {
   readFile(relativePath: string, ctx?: FileOpContext): Promise<FileReadResponse>;
   writeFile(relativePath: string, content: string, ctx?: FileOpContext): Promise<FileWriteResponse>;
   overwriteFile(relativePath: string, content: string, expectedHash: string, ctx?: FileOpContext): Promise<FileOverwriteResponse>;
+  patchFile(relativePath: string, patch: string, expectedHash: string, ctx?: FileOpContext): Promise<FilePatchResponse>;
   listDir(relativePath: string, ctx?: FileOpContext): Promise<FileListResponse>;
+  mkdir(relativePath: string, ctx?: FileOpContext): Promise<FileMkdirResponse>;
+  copyFile(srcRelative: string, destRelative: string, ctx?: FileOpContext): Promise<FileCopyResponse>;
+  moveFile(srcRelative: string, destRelative: string, ctx?: FileOpContext): Promise<FileMoveResponse>;
+  deleteFile(relativePath: string, ctx?: FileOpContext): Promise<FileDeleteResponse>;
+  fileFind(basePath: string, pattern?: string, ctx?: FileOpContext): Promise<FileFindResponse>;
+  fileGrep(query: string, basePath?: string, ctx?: FileOpContext): Promise<FileGrepResponse>;
 }
 
 /** AskGate — pauses tool loop on ASK_REQUIRED, resolves when user responds. */
@@ -147,7 +163,7 @@ At the end of your message, append:
 </tool_calls>
 
 - "id" must be a short string unique within the message.
-- "name" must be one of: "file_list", "file_read", "file_write_create", "file_write_overwrite".
+- "name" must be one of: "file_list", "file_read", "file_write_create", "file_write_overwrite", "file_patch", "file_mkdir", "file_copy", "file_move", "file_delete", "file_find", "file_grep".
 - "arguments" must be an object. Only the arguments listed below are allowed.
 
 AVAILABLE TOOLS:
@@ -184,6 +200,78 @@ AVAILABLE TOOLS:
   - The expected_hash must match the current file content. If the file was modified externally, you'll get a HASH_MISMATCH error — re-read the file and try again.
   - Only works when hashCoversFullFile was true in the read result.
   - If the operation requires user approval, you'll get an ASK_REQUIRED response. The app will ask the user and retry automatically.
+
+5) file_mkdir
+- Purpose: create a new directory.
+- Arguments:
+  - path: string (relative directory path)
+- Notes:
+  - Non-recursive: parent directory must already exist.
+  - Fails if the directory already exists.
+
+6) file_copy
+- Purpose: copy a file to a new location.
+- Arguments:
+  - source: string (relative path of the source file)
+  - destination: string (relative path for the copy)
+- Notes:
+  - File-only — cannot copy directories. To copy a directory, create it with file_mkdir then copy each file individually.
+  - Fails if the destination already exists.
+
+7) file_move
+- Purpose: move or rename a file.
+- Arguments:
+  - source: string (relative path of the source)
+  - destination: string (relative path for the new location)
+- Notes:
+  - Fails if the destination already exists.
+  - May require user approval depending on the current policy.
+
+8) file_delete
+- Purpose: delete a file (moves it to a trash folder — soft delete).
+- Arguments:
+  - path: string (relative file path)
+- Notes:
+  - The file is moved to .clerk/trash/, not permanently deleted.
+  - May require user approval depending on the current policy.
+
+9) file_find
+- Purpose: search for files by name pattern (glob).
+- Arguments:
+  - path: string (relative base directory to search in, "." allowed)
+  - pattern: string (optional glob pattern, e.g. "*.ts", "test_*")
+- Notes:
+  - Recursively searches subdirectories.
+  - Results are capped at 200 entries.
+  - Excludes node_modules, .git, and internal directories automatically.
+
+10) file_grep
+- Purpose: search file contents for a text string.
+- Arguments:
+  - query: string (the text to search for, case-insensitive)
+  - path: string (optional; relative base directory to search in, defaults to ".")
+- Notes:
+  - Returns matching lines with file path, line number, and preview.
+  - Capped at 200 matches across 50 files.
+  - Skips binary files and files over 1MB.
+  - Excludes node_modules, .git, and internal directories automatically.
+
+11) file_patch
+- Purpose: apply a unified diff patch to an existing file. More efficient than file_write_overwrite for surgical edits.
+- Arguments:
+  - path: string (relative file path)
+  - expected_hash: string (the contentHash from the most recent file_read of this file)
+  - patch: string (unified diff format — must start with @@ hunk headers)
+- Notes:
+  - You MUST read the file first (file_read) to get the contentHash.
+  - The patch must be in unified diff format with @@ hunk headers.
+  - Context lines must match exactly. If the patch fails to apply, re-read the file and generate a new patch.
+  - If the operation requires user approval, you'll get an ASK_REQUIRED response.
+  - Prefer this over file_write_overwrite when making small changes to large files.
+  - Do NOT include diff --git or --- / +++ headers — start directly with @@ lines.
+  - Max 50 hunks, 2000 changed lines, 100KB patch size.
+
+IMPORTANT: All paths under .clerk/ are off-limits and will be denied.
 
 HOW TOOL RESULTS APPEAR:
 After you call tools, the app will reply with a user message containing:
@@ -357,6 +445,125 @@ function validateArgs(name: ToolName, args: Record<string, unknown>): ToolParseR
     return validateRelPath(p);
   }
 
+  if (name === 'file_patch') {
+    const err = requireOnly(['path', 'expected_hash', 'patch']);
+    if (err) return { ok: false, error: { code: 'INVALID_ARGS', message: `file_patch: ${err}` } };
+
+    const p = args['path'];
+    const hash = args['expected_hash'];
+    const patch = args['patch'];
+    if (typeof p !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_patch: 'path' must be a string." } };
+    }
+    if (typeof hash !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_patch: 'expected_hash' must be a string." } };
+    }
+    if (typeof patch !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_patch: 'patch' must be a string." } };
+    }
+    return validateRelPath(p);
+  }
+
+  if (name === 'file_mkdir') {
+    const err = requireOnly(['path']);
+    if (err) return { ok: false, error: { code: 'INVALID_ARGS', message: `file_mkdir: ${err}` } };
+
+    const p = args['path'];
+    if (typeof p !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_mkdir: 'path' must be a string." } };
+    }
+    return validateRelPath(p);
+  }
+
+  if (name === 'file_copy') {
+    const err = requireOnly(['source', 'destination']);
+    if (err) return { ok: false, error: { code: 'INVALID_ARGS', message: `file_copy: ${err}` } };
+
+    const src = args['source'];
+    const dest = args['destination'];
+    if (typeof src !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_copy: 'source' must be a string." } };
+    }
+    if (typeof dest !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_copy: 'destination' must be a string." } };
+    }
+    const srcCheck = validateRelPath(src);
+    if (!srcCheck.ok) return srcCheck;
+    return validateRelPath(dest);
+  }
+
+  if (name === 'file_move') {
+    const err = requireOnly(['source', 'destination']);
+    if (err) return { ok: false, error: { code: 'INVALID_ARGS', message: `file_move: ${err}` } };
+
+    const src = args['source'];
+    const dest = args['destination'];
+    if (typeof src !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_move: 'source' must be a string." } };
+    }
+    if (typeof dest !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_move: 'destination' must be a string." } };
+    }
+    const srcCheck = validateRelPath(src);
+    if (!srcCheck.ok) return srcCheck;
+    return validateRelPath(dest);
+  }
+
+  if (name === 'file_delete') {
+    const err = requireOnly(['path']);
+    if (err) return { ok: false, error: { code: 'INVALID_ARGS', message: `file_delete: ${err}` } };
+
+    const p = args['path'];
+    if (typeof p !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_delete: 'path' must be a string." } };
+    }
+    return validateRelPath(p);
+  }
+
+  if (name === 'file_find') {
+    // path required, pattern optional
+    for (const k of keys) {
+      if (k !== 'path' && k !== 'pattern') {
+        return { ok: false, error: { code: 'INVALID_ARGS', message: `file_find: Unknown argument '${k}'.` } };
+      }
+    }
+    if (!('path' in args)) {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_find: Missing argument 'path'." } };
+    }
+    const p = args['path'];
+    if (typeof p !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_find: 'path' must be a string." } };
+    }
+    if ('pattern' in args && typeof args['pattern'] !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_find: 'pattern' must be a string." } };
+    }
+    return validateRelPath(p);
+  }
+
+  if (name === 'file_grep') {
+    // query required, path optional
+    for (const k of keys) {
+      if (k !== 'query' && k !== 'path') {
+        return { ok: false, error: { code: 'INVALID_ARGS', message: `file_grep: Unknown argument '${k}'.` } };
+      }
+    }
+    if (!('query' in args)) {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_grep: Missing argument 'query'." } };
+    }
+    const q = args['query'];
+    if (typeof q !== 'string') {
+      return { ok: false, error: { code: 'INVALID_ARGS', message: "file_grep: 'query' must be a string." } };
+    }
+    if ('path' in args) {
+      const p = args['path'];
+      if (typeof p !== 'string') {
+        return { ok: false, error: { code: 'INVALID_ARGS', message: "file_grep: 'path' must be a string." } };
+      }
+      return validateRelPath(p);
+    }
+    return { ok: true, calls: [] };
+  }
+
   // file_write_create
   {
     const err = requireOnly(['path', 'content']);
@@ -406,7 +613,9 @@ function isPlainObject(x: unknown): x is Record<string, unknown> {
 }
 
 function isToolName(x: unknown): x is ToolName {
-  return x === 'file_list' || x === 'file_read' || x === 'file_write_create' || x === 'file_write_overwrite';
+  return x === 'file_list' || x === 'file_read' || x === 'file_write_create' || x === 'file_write_overwrite'
+    || x === 'file_patch' || x === 'file_mkdir' || x === 'file_copy' || x === 'file_move' || x === 'file_delete'
+    || x === 'file_find' || x === 'file_grep';
 }
 
 // ---------------------------------------------------------------------------
@@ -420,7 +629,7 @@ interface ExecuteToolResult {
   result: ToolResult;
   action: FileAction;
   askRequired?: boolean;
-  askInfo?: { toolId: string; path: string; content?: string; contentSize?: number };
+  askInfo?: { toolId: string; path: string; toPath?: string; content?: string; contentSize?: number; expectedHash?: string };
 }
 
 async function executeTool(
@@ -600,8 +809,151 @@ async function executeTool(
           path: toolPath,
           content,
           contentSize: Buffer.byteLength(content, 'utf-8'),
+          expectedHash,
         } : undefined,
       };
+    }
+  }
+
+  if (call.name === 'file_patch') {
+    const expectedHash = call.arguments['expected_hash'] as string;
+    const patchContent = call.arguments['patch'] as string;
+
+    const resp = await fileOps.patchFile(toolPath, patchContent, expectedHash, ctx);
+    if (resp.ok) {
+      const action: FileAction = {
+        tool: 'PATCH',
+        path: toolPath,
+        allowed: true,
+        profile: resp.decision.appliedProfile,
+        summary: `patched (${resp.appliedHunks} hunk${resp.appliedHunks !== 1 ? 's' : ''})`,
+        status: 'allowed',
+      };
+      return {
+        result: { id: call.id, name: call.name, ok: true, result: { newHash: resp.newHash, appliedHunks: resp.appliedHunks } },
+        action,
+      };
+    } else {
+      const isAskRequired = resp.code === 'ASK_REQUIRED';
+      const action: FileAction = {
+        tool: 'PATCH',
+        path: toolPath,
+        allowed: false,
+        profile: resp.decision?.appliedProfile ?? '',
+        error: resp.message,
+        status: isAskRequired ? 'ask_pending' : 'blocked',
+      };
+      return {
+        result: {
+          id: call.id,
+          name: call.name,
+          ok: false,
+          error: resp.message,
+          blocked: resp.code === 'BLOCKED',
+          askRequired: isAskRequired,
+          suggestion: isAskRequired
+            ? 'This operation requires user approval.'
+            : resp.code === 'BLOCKED' ? 'File patching is blocked by the current policy.'
+            : resp.code === 'HASH_MISMATCH' ? 'The file was modified since you last read it. Re-read the file and try again.'
+            : resp.code === 'PATCH_FAILED' ? 'The patch does not apply cleanly. Re-read the file and generate a fresh patch.'
+            : resp.code === 'INVALID_PATCH' ? 'The patch is structurally invalid. Check the diff format, hunk counts, and target file name.'
+            : undefined,
+        },
+        action,
+        askRequired: isAskRequired,
+        askInfo: isAskRequired ? {
+          toolId: 'file.patch',
+          path: toolPath,
+          content: patchContent,
+          contentSize: Buffer.byteLength(patchContent, 'utf-8'),
+          expectedHash,
+        } : undefined,
+      };
+    }
+  }
+
+  if (call.name === 'file_mkdir') {
+    const resp = await fileOps.mkdir(toolPath, ctx);
+    if (resp.ok) {
+      const action: FileAction = { tool: 'MKDIR', path: toolPath, allowed: true, profile: resp.decision.appliedProfile, summary: 'created', status: 'allowed' };
+      return { result: { id: call.id, name: call.name, ok: true }, action };
+    } else {
+      const action: FileAction = { tool: 'MKDIR', path: toolPath, allowed: !resp.decision || resp.code !== 'BLOCKED', profile: resp.decision?.appliedProfile ?? '', error: resp.message, status: resp.code === 'BLOCKED' ? 'blocked' : undefined };
+      return { result: { id: call.id, name: call.name, ok: false, error: resp.message, blocked: resp.code === 'BLOCKED', suggestion: resp.code === 'BLOCKED' ? 'Creating directories is blocked by the current policy.' : undefined }, action };
+    }
+  }
+
+  if (call.name === 'file_copy') {
+    const source = call.arguments['source'] as string;
+    const destination = call.arguments['destination'] as string;
+    const resp = await fileOps.copyFile(source, destination, ctx);
+    if (resp.ok) {
+      const action: FileAction = { tool: 'COPY', path: source, toPath: destination, allowed: true, profile: resp.decision.appliedProfile, summary: `copied to ${destination}`, status: 'allowed' };
+      return { result: { id: call.id, name: call.name, ok: true }, action };
+    } else {
+      const action: FileAction = { tool: 'COPY', path: source, toPath: destination, allowed: !resp.decision || resp.code !== 'BLOCKED', profile: resp.decision?.appliedProfile ?? '', error: resp.message, status: resp.code === 'BLOCKED' ? 'blocked' : undefined };
+      return { result: { id: call.id, name: call.name, ok: false, error: resp.message, blocked: resp.code === 'BLOCKED', suggestion: resp.code === 'BLOCKED' ? 'Copying files is blocked by the current policy.' : undefined }, action };
+    }
+  }
+
+  if (call.name === 'file_move') {
+    const source = call.arguments['source'] as string;
+    const destination = call.arguments['destination'] as string;
+    const resp = await fileOps.moveFile(source, destination, ctx);
+    if (resp.ok) {
+      const action: FileAction = { tool: 'MOVE', path: source, toPath: destination, allowed: true, profile: resp.decision.appliedProfile, summary: `moved to ${destination}`, status: 'allowed' };
+      return { result: { id: call.id, name: call.name, ok: true }, action };
+    } else {
+      const isAskRequired = resp.code === 'ASK_REQUIRED';
+      const action: FileAction = { tool: 'MOVE', path: source, toPath: destination, allowed: false, profile: resp.decision?.appliedProfile ?? '', error: resp.message, status: isAskRequired ? 'ask_pending' : 'blocked' };
+      return {
+        result: { id: call.id, name: call.name, ok: false, error: resp.message, blocked: resp.code === 'BLOCKED', askRequired: isAskRequired, suggestion: isAskRequired ? 'This operation requires user approval.' : resp.code === 'BLOCKED' ? 'Moving files is blocked by the current policy.' : undefined },
+        action,
+        askRequired: isAskRequired,
+        askInfo: isAskRequired ? { toolId: 'file.move', path: source, toPath: destination } : undefined,
+      };
+    }
+  }
+
+  if (call.name === 'file_delete') {
+    const resp = await fileOps.deleteFile(toolPath, ctx);
+    if (resp.ok) {
+      const action: FileAction = { tool: 'DELETE', path: toolPath, allowed: true, profile: resp.decision.appliedProfile, summary: 'moved to Trash', status: 'allowed' };
+      return { result: { id: call.id, name: call.name, ok: true }, action };
+    } else {
+      const isAskRequired = resp.code === 'ASK_REQUIRED';
+      const action: FileAction = { tool: 'DELETE', path: toolPath, allowed: false, profile: resp.decision?.appliedProfile ?? '', error: resp.message, status: isAskRequired ? 'ask_pending' : 'blocked' };
+      return {
+        result: { id: call.id, name: call.name, ok: false, error: resp.message, blocked: resp.code === 'BLOCKED', askRequired: isAskRequired, suggestion: isAskRequired ? 'This operation requires user approval.' : resp.code === 'BLOCKED' ? 'Deleting files is blocked by the current policy.' : undefined },
+        action,
+        askRequired: isAskRequired,
+        askInfo: isAskRequired ? { toolId: 'file.delete', path: toolPath } : undefined,
+      };
+    }
+  }
+
+  if (call.name === 'file_find') {
+    const pattern = call.arguments['pattern'] as string | undefined;
+    const resp = await fileOps.fileFind(toolPath, pattern, ctx);
+    if (resp.ok) {
+      const action: FileAction = { tool: 'FIND', path: toolPath, allowed: true, profile: resp.decision.appliedProfile, summary: `${resp.entries.length} file${resp.entries.length !== 1 ? 's' : ''}${resp.truncated ? ' (truncated)' : ''}${pattern ? ` matching ${pattern}` : ''}`, status: 'allowed' };
+      return { result: { id: call.id, name: call.name, ok: true, result: { entries: resp.entries, truncated: resp.truncated } }, action };
+    } else {
+      const action: FileAction = { tool: 'FIND', path: toolPath, allowed: !resp.decision || resp.code !== 'BLOCKED', profile: resp.decision?.appliedProfile ?? '', error: resp.message, status: resp.code === 'BLOCKED' ? 'blocked' : undefined };
+      return { result: { id: call.id, name: call.name, ok: false, error: resp.message, blocked: resp.code === 'BLOCKED' }, action };
+    }
+  }
+
+  if (call.name === 'file_grep') {
+    const query = call.arguments['query'] as string;
+    const grepPath = (call.arguments['path'] as string) ?? '.';
+    const resp = await fileOps.fileGrep(query, grepPath, ctx);
+    if (resp.ok) {
+      const action: FileAction = { tool: 'GREP', path: grepPath, allowed: true, profile: resp.decision.appliedProfile, summary: `${resp.matchCount} match${resp.matchCount !== 1 ? 'es' : ''} in ${resp.fileCount} file${resp.fileCount !== 1 ? 's' : ''}${resp.truncated ? ' (truncated)' : ''}`, status: 'allowed' };
+      return { result: { id: call.id, name: call.name, ok: true, result: { matches: resp.matches, matchCount: resp.matchCount, fileCount: resp.fileCount, truncated: resp.truncated } }, action };
+    } else {
+      const action: FileAction = { tool: 'GREP', path: grepPath, allowed: !resp.decision || resp.code !== 'BLOCKED', profile: resp.decision?.appliedProfile ?? '', error: resp.message, status: resp.code === 'BLOCKED' ? 'blocked' : undefined };
+      return { result: { id: call.id, name: call.name, ok: false, error: resp.message, blocked: resp.code === 'BLOCKED' }, action };
     }
   }
 
@@ -648,6 +1000,16 @@ async function executeTool(
 
 const MAX_FILE_SIZE_FOR_RESULT = 100_000; // 100KB truncation for tool results
 
+function toolIdToActivityKind(toolId: string): ActivityKind {
+  switch (toolId) {
+    case 'file.write.overwrite': return 'file_write_overwrite';
+    case 'file.patch': return 'file_patch';
+    case 'file.move': return 'file_move';
+    case 'file.delete': return 'file_delete';
+    default: return 'system';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Build tool results message
 // ---------------------------------------------------------------------------
@@ -664,14 +1026,16 @@ export class ToolLoop {
   private client: ToolLoopClient;
   private fileOps: ToolLoopFileOps;
   private askGate: AskGate | null;
+  private recorder: ActivityRecorder | null;
 
   /** Active controllers per streamId — used for stop(). */
   private activeControllers = new Map<string, AbortController>();
 
-  constructor(client: ToolLoopClient, fileOps: ToolLoopFileOps, askGate?: AskGate | null) {
+  constructor(client: ToolLoopClient, fileOps: ToolLoopFileOps, askGate?: AskGate | null, recorder?: ActivityRecorder | null) {
     this.client = client;
     this.fileOps = fileOps;
     this.askGate = askGate ?? null;
+    this.recorder = recorder ?? null;
   }
 
   /** Idempotent stop — aborts the controller for the given stream. */
@@ -847,15 +1211,24 @@ export class ToolLoop {
             activeElapsedMs += Date.now() - activeStartTime;
 
             const askId = correlationId;
+            const operationLabel = execResult.askInfo.toolId === 'file.move'
+              ? `Move ${execResult.askInfo.path} → ${execResult.askInfo.toPath}`
+              : execResult.askInfo.toolId === 'file.delete'
+                ? `Move ${execResult.askInfo.path} to Trash`
+                : execResult.askInfo.toolId === 'file.patch'
+                  ? `Patch ${execResult.askInfo.path}`
+                  : `Replace contents of ${execResult.askInfo.path}`;
             const askReq: AskRequest = {
               askId,
               streamId: streamId ?? '',
               correlationId,
               toolId: execResult.askInfo.toolId,
               path: execResult.askInfo.path,
-              operationLabel: `Replace contents of ${execResult.askInfo.path}`,
+              toPath: execResult.askInfo.toPath,
+              operationLabel,
               contentSize: execResult.askInfo.contentSize,
               contentPreview: execResult.askInfo.content?.slice(0, 200),
+              expectedHash: execResult.askInfo.expectedHash,
             };
 
             let askResponse: { decision: 'allow_once' | 'deny'; grantToken?: AskGrantToken; reason?: string };
@@ -882,10 +1255,41 @@ export class ToolLoop {
               results[results.length - 1] = retryResult.result;
               allFileActions[allFileActions.length - 1] = { ...retryResult.action, status: 'ask_approved' };
               callbacks.onFileAction?.({ ...retryResult.action, status: 'ask_approved' });
+              // Upsert activity with ask_approved status
+              if (this.recorder) {
+                const askKind = toolIdToActivityKind(execResult.askInfo!.toolId);
+                this.recorder.record({
+                  kind: askKind,
+                  toolId: execResult.askInfo!.toolId,
+                  path: execResult.askInfo!.path,
+                  allowed: retryResult.result.ok,
+                  status: 'ask_approved',
+                  decisionSource: 'daemon',
+                  summary: retryResult.action.summary ?? `Approved ${execResult.askInfo!.path}`,
+                  correlationId,
+                  streamId,
+                });
+              }
             } else {
               // Denied — update action status
               allFileActions[allFileActions.length - 1] = { ...execResult.action, status: 'ask_denied' };
               callbacks.onFileAction?.({ ...execResult.action, status: 'ask_denied' });
+              // Upsert activity with ask_denied status
+              if (this.recorder) {
+                const denyKind = toolIdToActivityKind(execResult.askInfo!.toolId);
+                this.recorder.record({
+                  kind: denyKind,
+                  toolId: execResult.askInfo!.toolId,
+                  path: execResult.askInfo!.path,
+                  allowed: false,
+                  status: 'ask_denied',
+                  decisionSource: 'daemon',
+                  reason: askResponse.reason ?? 'Denied by user',
+                  summary: `Denied ${execResult.askInfo!.path}`,
+                  correlationId,
+                  streamId,
+                });
+              }
 
               if (stoppedByUser) break;
             }
@@ -915,6 +1319,15 @@ export class ToolLoop {
     } finally {
       if (streamId) {
         this.activeControllers.delete(streamId);
+      }
+      if (stoppedByUser && this.recorder) {
+        this.recorder.record({
+          kind: 'system',
+          summary: 'Stopped by user',
+          allowed: true,
+          decisionSource: 'local',
+          streamId,
+        });
       }
     }
 

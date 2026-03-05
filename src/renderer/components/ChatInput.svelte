@@ -6,8 +6,8 @@
   let inputValue = $state('');
   let textareaEl: HTMLTextAreaElement | undefined = $state();
 
+  const streaming = $derived(chat.state.streaming);
   const canSend = $derived(chat.getCanSend());
-  const streaming = $derived(chat.isStreaming());
 
   async function handleSend() {
     if (!canSend || !inputValue.trim()) return;

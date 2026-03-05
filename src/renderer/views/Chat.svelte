@@ -8,9 +8,6 @@
   import AskCard from '../components/AskCard.svelte';
 
   const messages = $derived(chat.getMessages());
-  const violation = $derived(chat.getPendingViolation());
-  const pendingAsk = $derived(chat.getPendingAsk());
-  const error = $derived(chat.getError());
 
   let scrollEl: HTMLDivElement | undefined = $state();
 
@@ -42,27 +39,29 @@
       {/each}
     {/if}
 
-    {#if pendingAsk}
+    {#if chat.state.pendingAsk}
       <div class="ask-wrap">
-        <AskCard ask={pendingAsk} onRespond={(d) => chat.respondToAsk(d)} />
+        <AskCard ask={chat.state.pendingAsk} onRespond={(d) => chat.respondToAsk(d)} />
       </div>
     {/if}
 
-    {#if violation}
+    {#if chat.state.pendingViolation}
       <div class="violation-wrap">
-        <ViolationCard {violation} />
+        <ViolationCard violation={chat.state.pendingViolation} />
       </div>
     {/if}
 
-    {#if error}
+    {#if chat.state.error}
       <div class="error">
-        <span>Error: {error}</span>
+        <span>Error: {chat.state.error}</span>
         <button onclick={() => chat.clearError()}>Dismiss</button>
       </div>
     {/if}
   </div>
 
-  <ChatInput />
+  {#key chat.state.streaming}
+    <ChatInput />
+  {/key}
 </div>
 
 <style>

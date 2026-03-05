@@ -3,8 +3,8 @@
 <script lang="ts">
   import * as chat from '../stores/chat.svelte';
 
-  const models = $derived(chat.getAvailableModels());
-  const selected = $derived(chat.getSelectedModel());
+  const models = $derived(chat.state.availableModels);
+  const selected = $derived(chat.state.selectedModel);
 
   function onChange(e: Event) {
     const target = e.target as HTMLSelectElement;

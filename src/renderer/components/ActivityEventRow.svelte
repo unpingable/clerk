@@ -58,7 +58,10 @@
   }
 </script>
 
-<div class="row" class:blocked-row={!event.allowed}>
+<div class="row" class:blocked-row={!event.allowed}
+  data-kind={event.kind}
+  data-status={event.status ?? (event.allowed ? 'allowed' : 'blocked')}
+  data-error-code={event.errorCode ?? ''}>
   <div class="row-main" role="button" tabindex="0"
     onclick={() => showDetails = !showDetails}
     onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') showDetails = !showDetails; }}>
@@ -71,6 +74,9 @@
       <div class="detail-line">Mode: {event.mode.templateName} ({event.mode.governorProfile})</div>
       {#if event.reason}
         <div class="detail-line">Reason: {event.reason}</div>
+      {/if}
+      {#if event.errorCode}
+        <div class="detail-line">Error: {event.errorCode}</div>
       {/if}
       {#if event.correlationId}
         <div class="detail-line">Correlation: {event.correlationId}</div>

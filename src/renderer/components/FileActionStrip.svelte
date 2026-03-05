@@ -21,12 +21,16 @@
     : '\u2717'
   );
 
+  const pathDisplay = $derived(
+    action.toPath ? `${action.path} → ${action.toPath}` : action.path
+  );
+
   const label = $derived(
     action.error
-      ? `${action.tool} ${action.path} -- ${action.error}`
+      ? `${action.tool} ${pathDisplay} -- ${action.error}`
       : action.summary
-        ? `${action.tool} ${action.path} -- ${action.summary}`
-        : `${action.tool} ${action.path}`
+        ? `${action.tool} ${pathDisplay} -- ${action.summary}`
+        : `${action.tool} ${pathDisplay}`
   );
 </script>
 

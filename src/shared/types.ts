@@ -73,9 +73,11 @@ export interface AskRequest {
   correlationId: string;
   toolId: string;
   path: string;
+  toPath?: string;
   operationLabel: string;
   contentSize?: number;
   contentPreview?: string;
+  expectedHash?: string;
 }
 
 export type AskDecision = 'allow_once' | 'deny';
@@ -91,6 +93,7 @@ export interface AskGrantToken {
   correlationId: string;
   toolId: string;
   path: string;
+  toPath?: string;
   expectedHash?: string;
   usedAt: string | null;
 }
@@ -280,6 +283,7 @@ export type FileErrorCode =
   | 'BLOCKED'
   | 'NOT_FOUND'
   | 'FILE_EXISTS'
+  | 'DEST_EXISTS'
   | 'NOT_A_DIRECTORY'
   | 'DAEMON_NOT_READY'
   | 'IO_ERROR'
@@ -287,6 +291,8 @@ export type FileErrorCode =
   | 'PATH_TOO_LONG'
   | 'BINARY_FILE'
   | 'HASH_MISMATCH'
+  | 'INVALID_PATCH'
+  | 'PATCH_FAILED'
   | 'ASK_REQUIRED';
 
 export type FileActionStatus =
@@ -348,16 +354,86 @@ export interface FileOverwriteResult {
   decision: ScopeDecision;
 }
 
+export interface FileMkdirResult {
+  ok: true;
+  resolvedPath: string;
+  decision: ScopeDecision;
+}
+
+export interface FileCopyResult {
+  ok: true;
+  resolvedSrc: string;
+  resolvedDest: string;
+  decision: ScopeDecision;
+}
+
+export interface FileMoveResult {
+  ok: true;
+  resolvedSrc: string;
+  resolvedDest: string;
+  decision: ScopeDecision;
+}
+
+export interface FileDeleteResult {
+  ok: true;
+  resolvedPath: string;
+  trashPath: string;
+  decision: ScopeDecision;
+}
+
+export interface FileFindEntry {
+  path: string;
+  type: 'file' | 'directory';
+}
+
+export interface FileFindResult {
+  ok: true;
+  entries: FileFindEntry[];
+  truncated: boolean;
+  decision: ScopeDecision;
+}
+
+export interface FileGrepMatch {
+  file: string;
+  line: number;
+  preview: string;
+}
+
+export interface FileGrepResult {
+  ok: true;
+  matches: FileGrepMatch[];
+  matchCount: number;
+  fileCount: number;
+  truncated: boolean;
+  decision: ScopeDecision;
+}
+
 export type FileReadResponse = FileReadResult | FileErrorResult;
 export type FileWriteResponse = FileWriteResult | FileErrorResult;
 export type FileOverwriteResponse = FileOverwriteResult | FileErrorResult;
 export type FileListResponse = FileListResult | FileErrorResult;
+export type FileMkdirResponse = FileMkdirResult | FileErrorResult;
+export type FileCopyResponse = FileCopyResult | FileErrorResult;
+export type FileMoveResponse = FileMoveResult | FileErrorResult;
+export type FileDeleteResponse = FileDeleteResult | FileErrorResult;
+export interface FilePatchResult {
+  ok: true;
+  newHash: string;
+  appliedHunks: number;
+  resolvedPath: string;
+  decision: ScopeDecision;
+}
+
+export type FilePatchResponse = FilePatchResult | FileErrorResult;
+export type FileFindResponse = FileFindResult | FileErrorResult;
+export type FileGrepResponse = FileGrepResult | FileErrorResult;
 
 // --- File Actions (tool loop) ---
 
 export interface FileAction {
   tool: string;
   path: string;
+  toPath?: string;
   allowed: boolean;
   profile: string;
   error?: string;
@@ -417,6 +493,13 @@ export interface ClerkAPI {
   fileWrite(relativePath: string, content: string): Promise<FileWriteResponse>;
   fileOverwrite(relativePath: string, content: string, expectedHash: string): Promise<FileOverwriteResponse>;
   fileList(relativePath: string): Promise<FileListResponse>;
+  fileMkdir(relativePath: string): Promise<FileMkdirResponse>;
+  fileCopy(srcRelative: string, destRelative: string): Promise<FileCopyResponse>;
+  fileMove(srcRelative: string, destRelative: string): Promise<FileMoveResponse>;
+  fileDelete(relativePath: string): Promise<FileDeleteResponse>;
+  fileFind(basePath: string, pattern?: string): Promise<FileFindResponse>;
+  fileGrep(query: string, basePath?: string): Promise<FileGrepResponse>;
+  filePatch(relativePath: string, patch: string, expectedHash: string): Promise<FilePatchResponse>;
 
   // Chat stream control
   chatStreamStop(streamId: string): Promise<void>;

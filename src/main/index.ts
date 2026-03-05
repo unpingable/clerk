@@ -52,6 +52,7 @@ let askGateState: AskGateState | null = null;
 const fsIO: FileManagerIO = {
   lstat: (p) => fs.promises.lstat(p),
   stat: (p) => fs.promises.stat(p),
+  readFileRaw: (p) => fs.promises.readFile(p),
   readFile: (p, enc) => fs.promises.readFile(p, enc),
   open: async (p, flags) => {
     const fh = await fs.promises.open(p, flags);
@@ -65,6 +66,8 @@ const fsIO: FileManagerIO = {
   realpath: (p) => fs.promises.realpath(p),
   access: (p) => fs.promises.access(p),
   readdir: (p, opts) => fs.promises.readdir(p, opts),
+  mkdir: (p) => fs.promises.mkdir(p),
+  copyFile: (src, dest, flags?) => fs.promises.copyFile(src, dest, flags),
 };
 
 const activityLogIO: ActivityLogIO = {
@@ -141,7 +144,7 @@ app.whenReady().then(() => {
     );
     const win = createWindow();
     askGateState = makeAskGate(() => BrowserWindow.getAllWindows()[0]);
-    toolLoop = new ToolLoop(client, fileManager, askGateState.gate);
+    toolLoop = new ToolLoop(client, fileManager, askGateState.gate, activityManager);
     registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState);
     activityManager.attachBroadcast(win.webContents);
     monitor.start();

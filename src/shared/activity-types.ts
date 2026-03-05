@@ -6,6 +6,13 @@ export type ActivityKind =
   | 'file_read'
   | 'file_write_create'
   | 'file_write_overwrite'
+  | 'file_mkdir'
+  | 'file_copy'
+  | 'file_move'
+  | 'file_delete'
+  | 'file_find'
+  | 'file_grep'
+  | 'file_patch'
   | 'mode_change'
   | 'system';
 

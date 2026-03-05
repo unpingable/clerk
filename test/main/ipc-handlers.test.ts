@@ -225,14 +225,16 @@ describe('makeAskGate', () => {
       new AbortController().signal,
     );
 
-    // Respond with allow_once
-    askGateState.respondToAsk('ask-1', 'allow_once', 'stream-1', 'stream-1:1', 'file.write.overwrite', 'config.json', 'hash123');
+    // Respond with allow_once — token built from stored request context
+    askGateState.respondToAsk('ask-1', 'allow_once');
 
     const result = await askPromise;
     expect(result.decision).toBe('allow_once');
     expect(result.grantToken).toBeDefined();
     expect(result.grantToken!.toolId).toBe('file.write.overwrite');
     expect(result.grantToken!.path).toBe('config.json');
+    expect(result.grantToken!.correlationId).toBe('stream-1:1');
+    expect(result.grantToken!.streamId).toBe('stream-1');
     expect(result.grantToken!.usedAt).toBeNull();
   });
 
@@ -254,10 +256,49 @@ describe('makeAskGate', () => {
       new AbortController().signal,
     );
 
-    askGateState.respondToAsk('ask-2', 'deny', 'stream-1', 'stream-1:2', 'file.write.overwrite', 'secret.txt');
+    askGateState.respondToAsk('ask-2', 'deny');
 
     const result = await askPromise;
     expect(result.decision).toBe('deny');
     expect(result.grantToken).toBeUndefined();
+  });
+
+  it('allow_once token includes expectedHash from stored request', async () => {
+    const { makeAskGate } = await import('../../src/main/ipc-handlers');
+
+    const mockWin = { webContents: { send: vi.fn() } };
+    const askGateState = makeAskGate(() => mockWin as any);
+
+    const askPromise = askGateState.gate.requestAsk(
+      {
+        askId: 'ask-3',
+        streamId: 'stream-1',
+        correlationId: 'stream-1:3',
+        toolId: 'file.write.overwrite',
+        path: 'data.json',
+        operationLabel: 'Replace contents of data.json',
+        expectedHash: 'abc123hash',
+      },
+      new AbortController().signal,
+    );
+
+    askGateState.respondToAsk('ask-3', 'allow_once');
+
+    const result = await askPromise;
+    expect(result.decision).toBe('allow_once');
+    expect(result.grantToken).toBeDefined();
+    expect(result.grantToken!.expectedHash).toBe('abc123hash');
+    expect(result.grantToken!.toolId).toBe('file.write.overwrite');
+    expect(result.grantToken!.path).toBe('data.json');
+  });
+
+  it('respondToAsk is no-op for unknown askId', async () => {
+    const { makeAskGate } = await import('../../src/main/ipc-handlers');
+
+    const mockWin = { webContents: { send: vi.fn() } };
+    const askGateState = makeAskGate(() => mockWin as any);
+
+    // Should not throw
+    askGateState.respondToAsk('nonexistent', 'allow_once');
   });
 });

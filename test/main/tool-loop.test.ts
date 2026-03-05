@@ -61,7 +61,7 @@ describe('parseToolCalls', () => {
   });
 
   it('rejects unknown tool name', () => {
-    const text = `<tool_calls>\n[{"id":"1","name":"file_delete","arguments":{"path":"x"}}]\n</tool_calls>`;
+    const text = `<tool_calls>\n[{"id":"1","name":"file_explode","arguments":{"path":"x"}}]\n</tool_calls>`;
     const result = parseToolCalls(text);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -166,6 +166,110 @@ describe('parseToolCalls', () => {
       expect(result.error.message).toContain('expected_hash');
     }
   });
+
+  // --- file_patch ---
+
+  it('accepts file_patch with path, expected_hash, patch', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_patch","arguments":{"path":"test.txt","expected_hash":"abc123","patch":"@@ -1,1 +1,1 @@\\n-old\\n+new"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.calls).toHaveLength(1);
+      expect(result.calls[0].name).toBe('file_patch');
+      expect(result.calls[0].arguments['expected_hash']).toBe('abc123');
+      expect(result.calls[0].arguments['patch']).toContain('@@');
+    }
+  });
+
+  it('rejects file_patch without expected_hash', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_patch","arguments":{"path":"test.txt","patch":"@@ -1 +1 @@\\n-a\\n+b"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_ARGS');
+      expect(result.error.message).toContain('expected_hash');
+    }
+  });
+
+  it('rejects file_patch without patch', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_patch","arguments":{"path":"test.txt","expected_hash":"abc"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_ARGS');
+      expect(result.error.message).toContain('patch');
+    }
+  });
+
+  // --- Slice 3: new tools ---
+
+  it('parses file_mkdir with path', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_mkdir","arguments":{"path":"new-dir"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.calls[0].name).toBe('file_mkdir');
+      expect(result.calls[0].arguments['path']).toBe('new-dir');
+    }
+  });
+
+  it('parses file_copy with source and destination', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_copy","arguments":{"source":"a.txt","destination":"b.txt"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.calls[0].name).toBe('file_copy');
+      expect(result.calls[0].arguments['source']).toBe('a.txt');
+      expect(result.calls[0].arguments['destination']).toBe('b.txt');
+    }
+  });
+
+  it('parses file_move with source and destination', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_move","arguments":{"source":"old.txt","destination":"new.txt"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.calls[0].name).toBe('file_move');
+    }
+  });
+
+  it('parses file_delete with path', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_delete","arguments":{"path":"temp.txt"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.calls[0].name).toBe('file_delete');
+    }
+  });
+
+  it('rejects file_copy missing destination', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_copy","arguments":{"source":"a.txt"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_ARGS');
+      expect(result.error.message).toContain('destination');
+    }
+  });
+
+  it('rejects file_move missing source', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_move","arguments":{"destination":"b.txt"}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_ARGS');
+      expect(result.error.message).toContain('source');
+    }
+  });
+
+  it('rejects file_mkdir with extra arguments', () => {
+    const text = `<tool_calls>\n[{"id":"1","name":"file_mkdir","arguments":{"path":"dir","recursive":true}}]\n</tool_calls>`;
+    const result = parseToolCalls(text);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_ARGS');
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -206,7 +310,13 @@ describe('buildToolSystemPrompt', () => {
     expect(prompt).toContain('file_read');
     expect(prompt).toContain('file_write_create');
     expect(prompt).toContain('file_write_overwrite');
+    expect(prompt).toContain('file_mkdir');
+    expect(prompt).toContain('file_copy');
+    expect(prompt).toContain('file_move');
+    expect(prompt).toContain('file_delete');
+    expect(prompt).toContain('file_patch');
     expect(prompt).toContain('<tool_calls>');
+    expect(prompt).toContain('.clerk/');
   });
 
   it('accepts custom project root label', () => {
@@ -276,6 +386,50 @@ describe('ToolLoop.run', () => {
         truncated: false,
         resolvedPath: '/project',
         decision: { allowed: true, reason: 'ok', toolId: 'file.list', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      mkdir: vi.fn().mockResolvedValue({
+        ok: true,
+        resolvedPath: '/project/new-dir',
+        decision: { allowed: true, reason: 'ok', toolId: 'file.mkdir', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      copyFile: vi.fn().mockResolvedValue({
+        ok: true,
+        resolvedSrc: '/project/src.txt',
+        resolvedDest: '/project/dest.txt',
+        decision: { allowed: true, reason: 'ok', toolId: 'file.copy', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      moveFile: vi.fn().mockResolvedValue({
+        ok: true,
+        resolvedSrc: '/project/old.txt',
+        resolvedDest: '/project/new.txt',
+        decision: { allowed: true, reason: 'ok', toolId: 'file.move', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      deleteFile: vi.fn().mockResolvedValue({
+        ok: true,
+        resolvedPath: '/project/temp.txt',
+        trashPath: '/project/.clerk/trash/123-abcd-temp.txt',
+        decision: { allowed: true, reason: 'ok', toolId: 'file.delete', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      patchFile: vi.fn().mockResolvedValue({
+        ok: true,
+        newHash: 'newhash123',
+        appliedHunks: 1,
+        resolvedPath: '/project/test.txt',
+        decision: { allowed: true, reason: 'ok', toolId: 'file.patch', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      fileFind: vi.fn().mockResolvedValue({
+        ok: true,
+        entries: [{ path: 'test.txt', type: 'file' }],
+        truncated: false,
+        decision: { allowed: true, reason: 'ok', toolId: 'file.find', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
+      }),
+      fileGrep: vi.fn().mockResolvedValue({
+        ok: true,
+        matches: [],
+        matchCount: 0,
+        fileCount: 0,
+        truncated: false,
+        decision: { allowed: true, reason: 'ok', toolId: 'file.grep', appliedTemplateId: 'help_me_edit', appliedProfile: 'production' },
       }),
     };
   }
@@ -740,5 +894,235 @@ describe('ToolLoop.run', () => {
     const toolResultsMsg = secondCallMessages[secondCallMessages.length - 1].content;
     expect(toolResultsMsg).toContain('contentHash');
     expect(toolResultsMsg).toContain('hashCoversFullFile');
+  });
+
+  // --- Slice 3: execution of new tools ---
+
+  it('executes file_mkdir and emits MKDIR action', async () => {
+    const client = makeMockClient([
+      { text: `I'll create the directory.\n<tool_calls>\n[{"id":"1","name":"file_mkdir","arguments":{"path":"docs"}}]\n</tool_calls>` },
+      { text: 'Done!' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'create docs dir' }], {}, callbacks, 'stream-1');
+
+    expect(fileOps.mkdir).toHaveBeenCalledWith('docs', expect.objectContaining({ streamId: 'stream-1' }));
+    expect(callbacks.actions).toContainEqual(expect.objectContaining({ tool: 'MKDIR', path: 'docs', allowed: true }));
+  });
+
+  it('executes file_copy and emits COPY action with toPath', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_copy","arguments":{"source":"a.txt","destination":"b.txt"}}]\n</tool_calls>` },
+      { text: 'Copied.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'copy a to b' }], {}, callbacks, 'stream-1');
+
+    expect(fileOps.copyFile).toHaveBeenCalledWith('a.txt', 'b.txt', expect.objectContaining({ streamId: 'stream-1' }));
+    expect(callbacks.actions).toContainEqual(expect.objectContaining({ tool: 'COPY', path: 'a.txt', toPath: 'b.txt', allowed: true }));
+  });
+
+  it('executes file_move and emits MOVE action', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_move","arguments":{"source":"old.txt","destination":"new.txt"}}]\n</tool_calls>` },
+      { text: 'Moved.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'rename old to new' }], {}, callbacks, 'stream-1');
+
+    expect(fileOps.moveFile).toHaveBeenCalledWith('old.txt', 'new.txt', expect.objectContaining({ streamId: 'stream-1' }));
+    expect(callbacks.actions).toContainEqual(expect.objectContaining({ tool: 'MOVE', path: 'old.txt', toPath: 'new.txt', allowed: true }));
+  });
+
+  it('executes file_delete and emits DELETE action', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_delete","arguments":{"path":"temp.log"}}]\n</tool_calls>` },
+      { text: 'Deleted.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'delete temp.log' }], {}, callbacks, 'stream-1');
+
+    expect(fileOps.deleteFile).toHaveBeenCalledWith('temp.log', expect.objectContaining({ streamId: 'stream-1' }));
+    expect(callbacks.actions).toContainEqual(expect.objectContaining({ tool: 'DELETE', path: 'temp.log', allowed: true }));
+  });
+
+  it('handles ASK_REQUIRED for file_move', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_move","arguments":{"source":"a.txt","destination":"b.txt"}}]\n</tool_calls>` },
+      { text: 'Done.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    (fileOps.moveFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      code: 'ASK_REQUIRED',
+      message: 'Requires approval',
+      decision: { allowed: false, reason: 'ASK_REQUIRED', toolId: 'file.move', appliedTemplateId: 'help_me_edit', appliedProfile: 'research', askAvailable: true },
+    });
+    // After grant, succeeds:
+    (fileOps.moveFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      resolvedSrc: '/project/a.txt',
+      resolvedDest: '/project/b.txt',
+      decision: { allowed: true, reason: 'ok', toolId: 'file.move', appliedTemplateId: 'help_me_edit', appliedProfile: 'research' },
+    });
+    const grantToken: AskGrantToken = {
+      grantId: 'g1', streamId: 'stream-1', correlationId: 'stream-1:1',
+      toolId: 'file.move', path: 'a.txt', toPath: 'b.txt', usedAt: null,
+    };
+    const askGate: AskGate = {
+      requestAsk: vi.fn().mockResolvedValue({ decision: 'allow_once', grantToken }),
+    };
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps, askGate);
+
+    await loop.run([{ role: 'user', content: 'move a to b' }], {}, callbacks, 'stream-1');
+
+    expect(askGate.requestAsk).toHaveBeenCalledTimes(1);
+    const askReq = (askGate.requestAsk as ReturnType<typeof vi.fn>).mock.calls[0][0] as AskRequest;
+    expect(askReq.toolId).toBe('file.move');
+    expect(askReq.toPath).toBe('b.txt');
+    expect(askReq.operationLabel).toContain('Move');
+    // Final action should be ask_approved
+    const moveActions = callbacks.actions.filter((a: any) => a.tool === 'MOVE');
+    expect(moveActions.some((a: any) => a.status === 'ask_approved')).toBe(true);
+  });
+
+  // --- file_patch ---
+
+  it('executes file_patch tool', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_patch","arguments":{"path":"test.txt","expected_hash":"abc123","patch":"@@ -1,1 +1,1 @@\\n-old\\n+new"}}]\n</tool_calls>` },
+      { text: 'Patch applied successfully!' },
+    ]);
+    const fileOps = makeMockFileOps();
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'patch it' }], {}, callbacks);
+
+    expect(fileOps.patchFile).toHaveBeenCalledTimes(1);
+    expect(fileOps.patchFile).toHaveBeenCalledWith(
+      'test.txt',
+      '@@ -1,1 +1,1 @@\n-old\n+new',
+      'abc123',
+      expect.any(Object),
+    );
+    const patchActions = callbacks.actions.filter((a: any) => a.tool === 'PATCH');
+    expect(patchActions.length).toBeGreaterThanOrEqual(1);
+    expect((patchActions[0] as any).allowed).toBe(true);
+  });
+
+  it('file_patch PATCH_FAILED suggestion', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_patch","arguments":{"path":"test.txt","expected_hash":"abc","patch":"@@ -1 +1 @@\\n-wrong\\n+new"}}]\n</tool_calls>` },
+      { text: 'Let me re-read the file.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    (fileOps.patchFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      code: 'PATCH_FAILED',
+      message: 'Context mismatch at line 1',
+    });
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'patch it' }], {}, callbacks);
+
+    const patchActions = callbacks.actions.filter((a: any) => a.tool === 'PATCH');
+    expect(patchActions.length).toBeGreaterThanOrEqual(1);
+    expect((patchActions[0] as any).allowed).toBe(false);
+  });
+
+  it('file_patch HASH_MISMATCH suggestion', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_patch","arguments":{"path":"test.txt","expected_hash":"old","patch":"@@ -1 +1 @@\\n-a\\n+b"}}]\n</tool_calls>` },
+      { text: 'I need to re-read.' },
+    ]);
+    const fileOps = makeMockFileOps();
+    (fileOps.patchFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      code: 'HASH_MISMATCH',
+      message: 'File modified since last read',
+    });
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps);
+
+    await loop.run([{ role: 'user', content: 'patch it' }], {}, callbacks);
+
+    const patchActions = callbacks.actions.filter((a: any) => a.tool === 'PATCH');
+    expect(patchActions.length).toBeGreaterThanOrEqual(1);
+    expect((patchActions[0] as any).error).toContain('modified');
+  });
+
+  it('file_patch ASK_REQUIRED flow', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_patch","arguments":{"path":"config.json","expected_hash":"abc","patch":"@@ -1 +1 @@\\n-old\\n+new"}}]\n</tool_calls>` },
+      { text: 'Done!' },
+    ]);
+    const fileOps = makeMockFileOps();
+    (fileOps.patchFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      code: 'ASK_REQUIRED',
+      message: 'Requires approval',
+      decision: { allowed: false, reason: 'ASK_REQUIRED', toolId: 'file.patch', appliedTemplateId: 'help_me_edit', appliedProfile: 'production', askAvailable: true },
+    });
+    const grantToken: AskGrantToken = {
+      grantId: 'g1', streamId: 'stream-1', correlationId: 'stream-1:1',
+      toolId: 'file.patch', path: 'config.json', usedAt: null,
+    };
+    const askGate: AskGate = {
+      requestAsk: vi.fn().mockResolvedValue({ decision: 'allow_once', grantToken }),
+    };
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps, askGate);
+
+    await loop.run([{ role: 'user', content: 'patch config' }], {}, callbacks, 'stream-1');
+
+    expect(askGate.requestAsk).toHaveBeenCalledTimes(1);
+    const askReq = (askGate.requestAsk as ReturnType<typeof vi.fn>).mock.calls[0][0] as AskRequest;
+    expect(askReq.toolId).toBe('file.patch');
+    expect(askReq.operationLabel).toContain('Patch');
+    const patchActions = callbacks.actions.filter((a: any) => a.tool === 'PATCH');
+    expect(patchActions.some((a: any) => a.status === 'ask_approved')).toBe(true);
+  });
+
+  it('handles ASK_REQUIRED deny for file_delete', async () => {
+    const client = makeMockClient([
+      { text: `<tool_calls>\n[{"id":"1","name":"file_delete","arguments":{"path":"keep.txt"}}]\n</tool_calls>` },
+    ]);
+    const fileOps = makeMockFileOps();
+    (fileOps.deleteFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      code: 'ASK_REQUIRED',
+      message: 'Requires approval',
+      decision: { allowed: false, reason: 'ASK_REQUIRED', toolId: 'file.delete', appliedTemplateId: 'help_me_edit', appliedProfile: 'production', askAvailable: true },
+    });
+    const askGate: AskGate = {
+      requestAsk: vi.fn().mockResolvedValue({ decision: 'deny', reason: 'User denied' }),
+    };
+    const callbacks = makeCallbacks();
+    const loop = new ToolLoop(client, fileOps, askGate);
+
+    await loop.run([{ role: 'user', content: 'delete keep.txt' }], {}, callbacks, 'stream-1');
+
+    expect(askGate.requestAsk).toHaveBeenCalledTimes(1);
+    const askReq = (askGate.requestAsk as ReturnType<typeof vi.fn>).mock.calls[0][0] as AskRequest;
+    expect(askReq.toolId).toBe('file.delete');
+    expect(askReq.operationLabel).toContain('Trash');
+    // Final action should be ask_denied
+    const deleteActions = callbacks.actions.filter((a: any) => a.tool === 'DELETE');
+    expect(deleteActions.some((a: any) => a.status === 'ask_denied')).toBe(true);
   });
 });

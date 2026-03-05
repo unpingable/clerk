@@ -2,6 +2,10 @@
 /**
  * Chat state store — messages, streaming, violations, ask flow, stop.
  * Svelte 5 runes mode. Must be .svelte.ts.
+ *
+ * Components read from the exported `state` object (proxy-tracked property
+ * access) rather than getter functions, so Svelte's reactivity system
+ * reliably tracks cross-module dependencies.
  */
 
 import { api } from '$lib/api';
@@ -10,29 +14,31 @@ import type { ChatMessage, ChatStreamDelta, ChatStreamEnd, ChatFileActionEvent, 
 // --- State ---
 
 let messages = $state<ChatMessage[]>([]);
-let streaming = $state(false);
-let currentStreamId = $state<string | null>(null);
-let pendingViolation = $state<PendingViolation | null>(null);
-let selectedModel = $state('');
-let availableModels = $state<ModelInfo[]>([]);
-let error = $state<string | null>(null);
-let pendingAsk = $state<AskRequest | null>(null);
 const stoppedStreams = new Set<string>();
+
+/**
+ * Exported reactive state object.  Components read properties directly
+ * (e.g. `chat.state.streaming`) which ensures Svelte's proxy tracks the
+ * dependency — unlike getter functions which can snapshot the value.
+ */
+export const state = $state({
+  streaming: false,
+  currentStreamId: null as string | null,
+  pendingViolation: null as PendingViolation | null,
+  selectedModel: '',
+  availableModels: [] as ModelInfo[],
+  error: null as string | null,
+  pendingAsk: null as AskRequest | null,
+});
 
 // --- Derived ---
 
-const canSend = $derived(!streaming && !pendingViolation);
+const canSend = $derived(!state.streaming && !state.pendingViolation);
 
 // --- Getters (for components) ---
 
 export function getMessages(): ChatMessage[] { return messages; }
-export function isStreaming(): boolean { return streaming; }
 export function getCanSend(): boolean { return canSend; }
-export function getPendingViolation(): PendingViolation | null { return pendingViolation; }
-export function getSelectedModel(): string { return selectedModel; }
-export function getAvailableModels(): ModelInfo[] { return availableModels; }
-export function getError(): string | null { return error; }
-export function getPendingAsk(): AskRequest | null { return pendingAsk; }
 
 // --- Actions ---
 
@@ -44,7 +50,7 @@ function msgId(): string {
 export async function send(content: string): Promise<void> {
   if (!canSend || !content.trim()) return;
 
-  error = null;
+  state.error = null;
 
   // Add user message
   messages.push({
@@ -54,7 +60,7 @@ export async function send(content: string): Promise<void> {
     timestamp: Date.now(),
   });
 
-  streaming = true;
+  state.streaming = true;
 
   try {
     // Start streaming
@@ -62,9 +68,9 @@ export async function send(content: string): Promise<void> {
       messages
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role, content: m.content })),
-      selectedModel ? { model: selectedModel } : {},
+      state.selectedModel ? { model: state.selectedModel } : {},
     );
-    currentStreamId = streamId;
+    state.currentStreamId = streamId;
 
     // Add placeholder assistant message
     messages.push({
@@ -75,13 +81,13 @@ export async function send(content: string): Promise<void> {
       streaming: true,
     });
   } catch (err) {
-    streaming = false;
-    error = String(err);
+    state.streaming = false;
+    state.error = String(err);
   }
 }
 
 export function onDelta(data: ChatStreamDelta): void {
-  if (data.streamId !== currentStreamId || stoppedStreams.has(data.streamId)) return;
+  if (data.streamId !== state.currentStreamId || stoppedStreams.has(data.streamId)) return;
   const last = messages[messages.length - 1];
   if (last?.role === 'assistant' && last.streaming) {
     last.content += data.delta.content ?? '';
@@ -89,7 +95,7 @@ export function onDelta(data: ChatStreamDelta): void {
 }
 
 export function onEnd(data: ChatStreamEnd): void {
-  if (data.streamId !== currentStreamId) return;
+  if (data.streamId !== state.currentStreamId) return;
   const last = messages[messages.length - 1];
   if (last?.role === 'assistant') {
     last.streaming = false;
@@ -99,17 +105,17 @@ export function onEnd(data: ChatStreamEnd): void {
       last.fileActions = data.result.fileActions;
     }
     if (data.result.pending) {
-      pendingViolation = data.result.pending;
+      state.pendingViolation = data.result.pending;
     }
   }
   if (data.streamId) stoppedStreams.delete(data.streamId);
-  streaming = false;
-  currentStreamId = null;
-  pendingAsk = null;
+  state.streaming = false;
+  state.currentStreamId = null;
+  state.pendingAsk = null;
 }
 
 export function onFileAction(data: ChatFileActionEvent): void {
-  if (data.streamId !== currentStreamId || stoppedStreams.has(data.streamId)) return;
+  if (data.streamId !== state.currentStreamId || stoppedStreams.has(data.streamId)) return;
   const last = messages[messages.length - 1];
   if (last?.role === 'assistant') {
     if (!last.fileActions) last.fileActions = [];
@@ -118,33 +124,33 @@ export function onFileAction(data: ChatFileActionEvent): void {
 }
 
 export function onAskRequest(data: AskRequest): void {
-  if (data.streamId !== currentStreamId || stoppedStreams.has(data.streamId)) return;
-  pendingAsk = data;
+  if (data.streamId !== state.currentStreamId || stoppedStreams.has(data.streamId)) return;
+  state.pendingAsk = data;
 }
 
 export async function respondToAsk(decision: 'allow_once' | 'deny'): Promise<void> {
-  if (!pendingAsk) return;
-  const ask = pendingAsk;
-  pendingAsk = null;
+  if (!state.pendingAsk) return;
+  const ask = state.pendingAsk;
+  state.pendingAsk = null;
   try {
     await api.askRespond(ask.askId, decision);
   } catch (err) {
-    error = String(err);
+    state.error = String(err);
   }
 }
 
 export async function stopStreaming(): Promise<void> {
-  if (!streaming || !currentStreamId) return;
-  stoppedStreams.add(currentStreamId);
+  if (!state.streaming || !state.currentStreamId) return;
+  stoppedStreams.add(state.currentStreamId);
   try {
-    await api.chatStreamStop(currentStreamId);
+    await api.chatStreamStop(state.currentStreamId);
   } catch {
     // Best effort
   }
 }
 
 export async function resolveViolation(action: 'fix' | 'revise' | 'proceed', param?: string): Promise<void> {
-  if (!pendingViolation) return;
+  if (!state.pendingViolation) return;
 
   try {
     switch (action) {
@@ -158,27 +164,27 @@ export async function resolveViolation(action: 'fix' | 'revise' | 'proceed', par
         await api.commitProceed(param ?? 'User approved');
         break;
     }
-    pendingViolation = null;
+    state.pendingViolation = null;
   } catch (err) {
-    error = String(err);
+    state.error = String(err);
   }
 }
 
 export function setModel(model: string): void {
-  selectedModel = model;
+  state.selectedModel = model;
 }
 
 export async function loadModels(): Promise<void> {
   try {
-    availableModels = await api.chatModels();
-    if (availableModels.length > 0 && !selectedModel) {
-      selectedModel = availableModels[0].id;
+    state.availableModels = await api.chatModels();
+    if (state.availableModels.length > 0 && !state.selectedModel) {
+      state.selectedModel = state.availableModels[0].id;
     }
   } catch {
-    availableModels = [];
+    state.availableModels = [];
   }
 }
 
 export function clearError(): void {
-  error = null;
+  state.error = null;
 }

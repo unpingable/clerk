@@ -47,6 +47,13 @@ export async function loadEvents(): Promise<void> {
 
 /** Called from App.svelte when a live event arrives via IPC. */
 export function onEvent(event: ActivityEvent): void {
+  // Upsert-by-id: ActivityManager sets id=correlationId for correlated events,
+  // so matching on id catches both fresh inserts and upsert broadcasts.
+  const idx = events.findIndex(e => e.id === event.id);
+  if (idx !== -1) {
+    events = [...events.slice(0, idx), event, ...events.slice(idx + 1)];
+    return;
+  }
   // Prepend (newest first) and cap at 500
   events = [event, ...events].slice(0, 500);
 }
