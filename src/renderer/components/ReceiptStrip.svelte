@@ -3,8 +3,14 @@
 <script lang="ts">
   import type { ReceiptRef } from '$shared/types';
   import { truncateHash } from '$lib/format';
+  import { settings } from '../stores/settings.svelte';
+  import { friendlyVerdict } from '$lib/jargon';
 
   let { receipt }: { receipt: ReceiptRef } = $props();
+
+  const friendly = $derived(settings.friendlyMode);
+  const verdictInfo = $derived(friendlyVerdict(receipt.verdict, friendly));
+  const hashLabel = $derived(friendly ? 'proof' : 'receipt');
 
   const verdictClass = $derived(
     receipt.verdict === 'pass' || receipt.verdict === 'allow' ? 'pass' :
@@ -15,11 +21,11 @@
 
 <div class="strip">
   <span class="hash" title={receipt.hash}>
-    receipt: {truncateHash(receipt.hash, 12)}
+    {hashLabel}: {truncateHash(receipt.hash, 12)}
   </span>
-  <span class="verdict {verdictClass}">
+  <span class="verdict {verdictClass}" title={verdictInfo.tooltip}>
     {receipt.verdict === 'pass' || receipt.verdict === 'allow' ? '\u2713' : receipt.verdict === 'block' ? '\u2717' : '\u26A0'}
-    {receipt.verdict}
+    {verdictInfo.label}
   </span>
 </div>
 

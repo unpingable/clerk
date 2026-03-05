@@ -2,8 +2,12 @@
 <!-- Single row in the activity feed. -->
 <script lang="ts">
   import type { ActivityEvent } from '$shared/types';
+  import { settings } from '../stores/settings.svelte';
+  import { friendlyError } from '$lib/jargon';
 
   let { event }: { event: ActivityEvent } = $props();
+
+  const friendly = $derived(settings.friendlyMode);
 
   const statusClass = $derived(event.allowed ? 'allowed' : 'blocked');
   const statusIcon = $derived(event.allowed ? '\u2713' : '\u2717');
@@ -71,14 +75,15 @@
   </div>
   {#if showDetails}
     <div class="details">
-      <div class="detail-line">Mode: {event.mode.templateName} ({event.mode.governorProfile})</div>
+      <div class="detail-line">Mode: {event.mode.templateName}{friendly ? '' : ` (${event.mode.governorProfile})`}</div>
       {#if event.reason}
         <div class="detail-line">Reason: {event.reason}</div>
       {/if}
       {#if event.errorCode}
-        <div class="detail-line">Error: {event.errorCode}</div>
+        {@const errInfo = friendlyError(event.errorCode, friendly)}
+        <div class="detail-line" title={errInfo.tooltip}>Error: {errInfo.label}</div>
       {/if}
-      {#if event.correlationId}
+      {#if event.correlationId && !friendly}
         <div class="detail-line">Correlation: {event.correlationId}</div>
       {/if}
       <button class="copy-btn" onclick={copyDetails}>{copyLabel}</button>

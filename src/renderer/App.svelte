@@ -7,10 +7,12 @@
   import TemplatePicker from './components/TemplatePicker.svelte';
   import DaemonSetup from './components/DaemonSetup.svelte';
   import ActivityPanel from './components/ActivityPanel.svelte';
+  import SettingsGear from './components/SettingsGear.svelte';
   import * as conn from './stores/connection.svelte';
   import * as chat from './stores/chat.svelte';
   import * as tmpl from './stores/template.svelte';
   import * as activity from './stores/activity.svelte';
+  import { loadSettings } from './stores/settings.svelte';
   import { api } from '$lib/api';
   import type { DaemonStatus, DaemonStatusErr } from '$shared/types';
 
@@ -19,8 +21,44 @@
 
   const daemonOk = $derived(daemonStatus?.ok === true);
 
+  // --- Keyboard shortcuts ---
+
+  let clearPending = $state(false);
+  let clearTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    const mod = e.metaKey || e.ctrlKey;
+    const target = e.target as HTMLElement;
+    const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+
+    // Cmd/Ctrl+K: focus chat input (always active)
+    if (mod && e.key === 'k') {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('clerk:focus-input'));
+      return;
+    }
+
+    // Ignore other shortcuts when in input fields
+    if (isInput) return;
+
+    // Cmd/Ctrl+Shift+Backspace: clear chat (press-twice guard)
+    if (mod && e.shiftKey && e.key === 'Backspace') {
+      e.preventDefault();
+      if (clearPending) {
+        clearTimeout(clearTimer);
+        clearPending = false;
+        chat.clearMessages();
+      } else {
+        clearPending = true;
+        clearTimer = setTimeout(() => { clearPending = false; }, 2000);
+      }
+      return;
+    }
+  }
+
   // Check daemon status, then wire up if ok
   $effect(() => {
+    loadSettings();
     api.daemonStatus().then((status) => {
       daemonStatus = status;
       loading = false;
@@ -55,6 +93,8 @@
   });
 </script>
 
+<svelte:window onkeydown={handleGlobalKeydown} />
+
 <div class="app">
   <header class="header">
     <h1 class="title">Clerk</h1>
@@ -64,6 +104,7 @@
         <ModelPicker />
         <ConnectionBadge />
       {/if}
+      <SettingsGear />
     </div>
   </header>
   <main class="main">

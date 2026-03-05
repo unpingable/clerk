@@ -188,3 +188,10 @@ export async function loadModels(): Promise<void> {
 export function clearError(): void {
   state.error = null;
 }
+
+export function clearMessages(): void {
+  messages.length = 0;
+  state.error = null;
+  state.pendingViolation = null;
+  state.pendingAsk = null;
+}

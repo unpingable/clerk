@@ -20,6 +20,7 @@ import { FileManager } from './file-manager.js';
 import { ToolLoop } from './tool-loop.js';
 import { ActivityLog } from './activity-log.js';
 import { ActivityManager } from './activity-manager.js';
+import { SettingsManager } from './settings-manager.js';
 import { makeAskGate } from './ipc-handlers.js';
 import type { AskGateState } from './ipc-handlers.js';
 import { getTemplateById, getDefaultTemplate } from '../shared/templates.js';
@@ -113,6 +114,9 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  // Settings work without the daemon — create unconditionally
+  const settingsManager = new SettingsManager(app.getPath('userData'));
+
   resolveResult = resolveGovernorDaemon();
 
   if (resolveResult.ok) {
@@ -145,7 +149,7 @@ app.whenReady().then(() => {
     const win = createWindow();
     askGateState = makeAskGate(() => BrowserWindow.getAllWindows()[0]);
     toolLoop = new ToolLoop(client, fileManager, askGateState.gate, activityManager);
-    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState);
+    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState, settingsManager);
     activityManager.attachBroadcast(win.webContents);
     monitor.start();
 
@@ -163,7 +167,7 @@ app.whenReady().then(() => {
     console.error(`[clerk] daemon not found: ${resolveResult.reason} — ${resolveResult.detail}`);
     console.error(`[clerk] tried: ${resolveResult.tried.join(', ')}`);
     // Still launch the window — renderer will show the first-run screen
-    registerIpcHandlers(null, null, resolveResult);
+    registerIpcHandlers(null, null, resolveResult, null, null, null, null, null, settingsManager);
     createWindow();
   }
 });

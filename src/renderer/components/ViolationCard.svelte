@@ -3,8 +3,13 @@
 <script lang="ts">
   import type { PendingViolation } from '$shared/types';
   import * as chat from '../stores/chat.svelte';
+  import { settings } from '../stores/settings.svelte';
 
   let { violation }: { violation: PendingViolation } = $props();
+
+  const friendly = $derived(settings.friendlyMode);
+  const titleText = $derived(friendly ? "Clerk wasn't sure about this" : 'Violation');
+  const reviseLabel = $derived(friendly ? 'Revise Rule' : 'Revise Anchor');
 
   async function fix() {
     await chat.resolveViolation('fix');
@@ -22,7 +27,7 @@
 <div class="card">
   <div class="header">
     <span class="icon">&#9888;</span>
-    <span class="title">Violation</span>
+    <span class="title">{titleText}</span>
     <span class="severity">{violation.severity}</span>
   </div>
 
@@ -34,7 +39,7 @@
 
   <div class="actions">
     <button class="btn btn-fix" onclick={fix}>Fix</button>
-    <button class="btn btn-revise" onclick={revise}>Revise Anchor</button>
+    <button class="btn btn-revise" onclick={revise}>{reviseLabel}</button>
     <button class="btn btn-proceed" onclick={proceed}>Proceed</button>
   </div>
 </div>

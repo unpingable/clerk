@@ -94,6 +94,42 @@ describe('IPC handler registration', () => {
     expect(registeredChannels).toContain(Channels.FILES_OVERWRITE);
     expect(registeredChannels).toContain(Channels.FILES_LIST);
     expect(registeredChannels).toContain(Channels.ACTIVITY_LIST);
+    expect(registeredChannels).toContain(Channels.SETTINGS_GET_ALL);
+    expect(registeredChannels).toContain(Channels.SETTINGS_SET);
+  });
+
+  it('SETTINGS_GET_ALL returns defaults without settingsManager', async () => {
+    const { registerIpcHandlers } = await import('../../src/main/ipc-handlers');
+
+    registerIpcHandlers(null, null, { ok: false, reason: 'NOT_FOUND', detail: '', tried: [] } as any);
+
+    const handleCalls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls;
+    const getCall = handleCalls.find((c: unknown[]) => c[0] === Channels.SETTINGS_GET_ALL);
+    expect(getCall).toBeDefined();
+
+    const handler = getCall![1] as (...args: unknown[]) => Promise<unknown>;
+    const result = await handler();
+    expect(result).toEqual({ friendlyMode: true });
+  });
+
+  it('SETTINGS_SET delegates to settingsManager.set', async () => {
+    const { registerIpcHandlers } = await import('../../src/main/ipc-handlers');
+
+    const mockSettingsManager = {
+      getAll: vi.fn().mockReturnValue({ friendlyMode: false }),
+      set: vi.fn().mockReturnValue({ friendlyMode: false }),
+    };
+
+    registerIpcHandlers(null, null, { ok: false, reason: 'NOT_FOUND', detail: '', tried: [] } as any, null, null, null, null, null, mockSettingsManager as any);
+
+    const handleCalls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls;
+    const setCall = handleCalls.find((c: unknown[]) => c[0] === Channels.SETTINGS_SET);
+    expect(setCall).toBeDefined();
+
+    const handler = setCall![1] as (...args: unknown[]) => Promise<unknown>;
+    const result = await handler({} as any, { friendlyMode: false });
+    expect(mockSettingsManager.set).toHaveBeenCalledWith({ friendlyMode: false });
+    expect(result).toEqual({ friendlyMode: false });
   });
 
   it('HEALTH handler delegates to client.health()', async () => {

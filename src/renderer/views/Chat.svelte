@@ -9,6 +9,12 @@
 
   const messages = $derived(chat.getMessages());
 
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && chat.state.error && !chat.state.streaming && !chat.state.pendingAsk) {
+      chat.clearError();
+    }
+  }
+
   let scrollEl: HTMLDivElement | undefined = $state();
 
   // Auto-scroll to bottom when messages change
@@ -21,15 +27,24 @@
   });
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
+
 <div class="chat">
   <div class="messages" bind:this={scrollEl}>
     {#if messages.length === 0}
       <div class="empty">
-        <h2>Clerk</h2>
+        <h2>Welcome to Clerk</h2>
         <p>
-          I can help you organize files, write documents, and manage tasks.
-          Everything I do is logged — click any activity to see exactly what
-          happened and why.
+          I'm your desktop assistant. Tell me what you need help with &mdash;
+          organizing files, writing documents, searching for information,
+          or managing your project.
+        </p>
+        <p>
+          Everything I do is tracked in the Activity panel, so you can
+          always see what happened and why.
+        </p>
+        <p class="settings-hint">
+          Prefer technical terms? You can switch in &#9881; Settings.
         </p>
         <p class="hint">What would you like help with?</p>
       </div>
@@ -95,6 +110,10 @@
     max-width: 460px;
     line-height: 1.6;
     margin-bottom: var(--sp-sm);
+  }
+  .settings-hint {
+    font-size: var(--font-size-sm);
+    color: var(--clerk-text-muted);
   }
   .hint {
     color: var(--clerk-text-muted);

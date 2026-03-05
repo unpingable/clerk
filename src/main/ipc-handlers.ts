@@ -16,6 +16,7 @@ import type { TemplateManager } from './template-manager.js';
 import type { FileManager } from './file-manager.js';
 import type { ToolLoop, AskGate } from './tool-loop.js';
 import type { ActivityManager } from './activity-manager.js';
+import type { SettingsManager } from './settings-manager.js';
 import type { DaemonResolveResult } from './daemon-resolver.js';
 import type { TemplateApplyRequest, AskRequest, AskGrantToken, AskDecision } from '../shared/types.js';
 
@@ -132,6 +133,7 @@ export function registerIpcHandlers(
   toolLoop: ToolLoop | null = null,
   activityManager: ActivityManager | null = null,
   askGateState: AskGateState | null = null,
+  settingsManager: SettingsManager | null = null,
 ): void {
   // --- Daemon Resolver ---
 
@@ -391,6 +393,19 @@ export function registerIpcHandlers(
     }
     const bp = typeof basePath === 'string' ? basePath : '.';
     return fileManager.fileGrep(query, bp);
+  });
+
+  // --- Settings ---
+
+  ipcMain.handle(Channels.SETTINGS_GET_ALL, async () => {
+    if (!settingsManager) return { friendlyMode: true };
+    return settingsManager.getAll();
+  });
+
+  ipcMain.handle(Channels.SETTINGS_SET, async (_event, partial: unknown) => {
+    if (!settingsManager) return { friendlyMode: true };
+    if (typeof partial !== 'object' || partial === null) return settingsManager.getAll();
+    return settingsManager.set(partial as Partial<{ friendlyMode: boolean }>);
   });
 
   // --- Activity Feed ---

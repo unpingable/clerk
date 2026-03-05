@@ -54,6 +54,11 @@ describe('Channels', () => {
     expect(Channels.CHAT_ASK_RESPOND).toBe('clerk:chat:ask:respond');
   });
 
+  it('has settings channels', () => {
+    expect(Channels.SETTINGS_GET_ALL).toBe('settings:getAll');
+    expect(Channels.SETTINGS_SET).toBe('settings:set');
+  });
+
   it('has activity channels', () => {
     expect(Channels.ACTIVITY_LIST).toBe('activity:list');
     expect(Channels.ACTIVITY_EVENT).toBe('activity:event');

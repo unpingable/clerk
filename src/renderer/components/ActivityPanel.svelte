@@ -3,13 +3,16 @@
 <script lang="ts">
   import ActivityEventRow from './ActivityEventRow.svelte';
   import * as activity from '../stores/activity.svelte';
+  import { settings } from '../stores/settings.svelte';
   import type { ActivityFilter } from '$shared/types';
 
-  const filters: { value: ActivityFilter; label: string }[] = [
+  const friendly = $derived(settings.friendlyMode);
+
+  const filters = $derived<{ value: ActivityFilter; label: string }[]>([
     { value: 'all', label: 'All' },
-    { value: 'blocked', label: 'Blocked' },
-    { value: 'writes', label: 'Writes' },
-  ];
+    { value: 'blocked', label: friendly ? 'Stopped' : 'Blocked' },
+    { value: 'writes', label: friendly ? 'Changes' : 'Writes' },
+  ]);
 
   const filteredEvents = $derived(activity.getFilteredEvents());
   const currentFilter = $derived(activity.getFilter());

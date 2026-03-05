@@ -2,8 +2,12 @@
 <!-- First-run screen shown when the governor daemon can't be found. -->
 <script lang="ts">
   import type { DaemonStatusErr } from '$shared/types';
+  import { settings } from '../stores/settings.svelte';
 
   let { status }: { status: DaemonStatusErr } = $props();
+
+  const friendly = $derived(settings.friendlyMode);
+  const heading = $derived(friendly ? 'Clerk needs its engine installed' : 'Clerk needs Governor');
 
   // Human-friendly advice per failure reason
   const advice = $derived(
@@ -19,7 +23,7 @@
 
 <div class="setup">
   <div class="card">
-    <h1>Clerk needs Governor</h1>
+    <h1>{heading}</h1>
     <p class="explanation">{advice}</p>
 
     <div class="detail">

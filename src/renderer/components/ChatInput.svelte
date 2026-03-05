@@ -26,8 +26,25 @@
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+    // Cmd/Ctrl+Enter as alternative send
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSend();
     }
   }
+
+  function handleFocusEvent() {
+    textareaEl?.focus();
+  }
+
+  $effect(() => {
+    window.addEventListener('clerk:focus-input', handleFocusEvent);
+    return () => {
+      window.removeEventListener('clerk:focus-input', handleFocusEvent);
+    };
+  });
 </script>
 
 <div class="input-bar">

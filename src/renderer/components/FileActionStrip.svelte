@@ -2,8 +2,12 @@
 <!-- Inline file action indicator shown under chat messages. -->
 <script lang="ts">
   import type { FileAction } from '$shared/types';
+  import { settings } from '../stores/settings.svelte';
+  import { friendlyTool, friendlyProfile, friendlyError } from '$lib/jargon';
 
   let { action }: { action: FileAction } = $props();
+
+  const friendly = $derived(settings.friendlyMode);
 
   const statusClass = $derived(
     action.status === 'ask_pending' ? 'ask-pending'
@@ -21,24 +25,36 @@
     : '\u2717'
   );
 
+  const toolInfo = $derived(friendlyTool(action.tool, friendly));
+  const profileInfo = $derived(friendlyProfile(action.profile, friendly));
+  const errorInfo = $derived(action.error ? friendlyError(action.error, friendly) : null);
+
   const pathDisplay = $derived(
-    action.toPath ? `${action.path} → ${action.toPath}` : action.path
+    action.toPath ? `${action.path} \u2192 ${action.toPath}` : action.path
   );
 
   const label = $derived(
-    action.error
-      ? `${action.tool} ${pathDisplay} -- ${action.error}`
+    errorInfo
+      ? `${toolInfo.label} ${pathDisplay} -- ${errorInfo.label}`
       : action.summary
-        ? `${action.tool} ${pathDisplay} -- ${action.summary}`
-        : `${action.tool} ${pathDisplay}`
+        ? `${toolInfo.label} ${pathDisplay} -- ${action.summary}`
+        : `${toolInfo.label} ${pathDisplay}`
+  );
+
+  const labelTooltip = $derived(
+    action.error
+      ? `${toolInfo.tooltip} ${pathDisplay} -- ${action.error}`
+      : action.summary
+        ? `${toolInfo.tooltip} ${pathDisplay} -- ${action.summary}`
+        : `${toolInfo.tooltip} ${pathDisplay}`
   );
 </script>
 
 <div class="strip">
   <span class="status {statusClass}">{statusIcon}</span>
-  <span class="label" title={label}>{label}</span>
+  <span class="label" title={labelTooltip}>{label}</span>
   {#if action.profile}
-    <span class="profile">[{action.profile}]</span>
+    <span class="profile" title={profileInfo.tooltip}>[{profileInfo.label}]</span>
   {/if}
 </div>
 

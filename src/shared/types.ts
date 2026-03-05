@@ -450,6 +450,12 @@ export interface ChatFileActionEvent {
 
 export type { ActivityKind, ActivityDecisionSource, ActivityFilter, AppliedModeInfo, ActivityEvent } from './activity-types.js';
 
+// --- Settings ---
+
+export interface ClerkSettings {
+  friendlyMode: boolean;
+}
+
 // --- Preload API shape ---
 
 export interface ClerkAPI {
@@ -517,6 +523,10 @@ export interface ClerkAPI {
   activityList(limit?: number): Promise<{ events: import('./activity-types.js').ActivityEvent[] }>;
   onActivityEvent(cb: (event: import('./activity-types.js').ActivityEvent) => void): void;
   offActivityEvent(): void;
+
+  // Settings
+  settingsGetAll(): Promise<ClerkSettings>;
+  settingsSet(partial: Partial<ClerkSettings>): Promise<ClerkSettings>;
 
   // Connection state events
   onConnectionState(cb: (state: string) => void): void;

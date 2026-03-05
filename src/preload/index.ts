@@ -100,6 +100,10 @@ const api: ClerkAPI = {
     ipcRenderer.removeAllListeners(Channels.CHAT_FILE_ACTION);
   },
 
+  // Settings
+  settingsGetAll: () => ipcRenderer.invoke(Channels.SETTINGS_GET_ALL),
+  settingsSet: (partial) => ipcRenderer.invoke(Channels.SETTINGS_SET, partial),
+
   // Activity feed
   activityList: (limit?) => ipcRenderer.invoke(Channels.ACTIVITY_LIST, limit),
   onActivityEvent: (cb) => {
