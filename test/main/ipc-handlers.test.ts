@@ -164,7 +164,7 @@ describe('IPC handler registration', () => {
 
     registerIpcHandlers(mockClient as any, mockMonitor as any,
       { ok: true, path: '/bin/gov', version: '2.5.0', source: 'path' } as any,
-      null, null, null, null, null, null, '/gov', mockConfigIO);
+      null, null, null, null, null, null, null, '/gov', mockConfigIO);
 
     const handleCalls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls;
     const registeredChannels = handleCalls.map((c: unknown[]) => c[0]);
@@ -216,7 +216,7 @@ describe('IPC handler registration', () => {
 
     registerIpcHandlers(mockClient as any, mockMonitor as any,
       { ok: true, path: '/bin/gov', version: '2.5.0', source: 'path' } as any,
-      null, null, null, null, null, null, '/gov', mockConfigIO);
+      null, null, null, null, null, null, null, '/gov', mockConfigIO);
 
     const handleCalls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls;
     const configCall = handleCalls.find((c: unknown[]) => c[0] === Channels.BACKEND_CONFIGURE);
@@ -267,7 +267,7 @@ describe('IPC handler registration', () => {
 
     registerIpcHandlers(mockClient as any, mockMonitor as any,
       { ok: true, path: '/bin/gov', version: '2.5.0', source: 'path' } as any,
-      mockTemplateManager as any, null, null, null, null, null, '/gov', mockConfigIO);
+      mockTemplateManager as any, null, null, null, null, null, null, '/gov', mockConfigIO);
 
     const handleCalls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls;
     const configCall = handleCalls.find((c: unknown[]) => c[0] === Channels.BACKEND_CONFIGURE);
@@ -322,7 +322,7 @@ describe('IPC handler registration', () => {
 
     registerIpcHandlers(mockClient as any, mockMonitor as any,
       { ok: true, path: '/bin/gov', version: '2.5.0', source: 'path' } as any,
-      mockTemplateManager as any, null, null, null, null, null, '/gov', mockConfigIO);
+      mockTemplateManager as any, null, null, null, null, null, null, '/gov', mockConfigIO);
 
     const handleCalls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls;
     const configCall = handleCalls.find((c: unknown[]) => c[0] === Channels.BACKEND_CONFIGURE);

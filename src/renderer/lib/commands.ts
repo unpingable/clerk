@@ -9,6 +9,8 @@ export type CommandActionId =
   | 'toggle-details'
   | 'focus-chat'
   | 'change-backend'
+  | 'new-conversation'
+  | 'toggle-sidebar'
   | `request-template:${string}`
   | `activity-filter:${string}`;
 
@@ -34,6 +36,8 @@ export interface CommandContext {
   appliedTemplateId: string;
   modKeyLabel: 'Cmd' | 'Ctrl';
   templates: Array<{ id: string; name: string }>;
+  conversationCount: number;
+  sidebarVisible: boolean;
 }
 
 const TEMPLATE_KEYWORDS: Record<string, string[]> = {
@@ -99,6 +103,28 @@ export function buildCommands(ctx: CommandContext): Command[] {
       group: 'Control',
       keywords: ['backend', 'api', 'key', 'anthropic', 'ollama', 'setup', 'configure'],
       action: { type: 'ui', actionId: 'change-backend' },
+    });
+  }
+
+  if (!ctx.streaming) {
+    commands.push({
+      id: 'new-conversation',
+      label: 'New conversation',
+      group: 'Control',
+      keywords: ['new', 'chat', 'conversation', 'fresh'],
+      shortcut: `${ctx.modKeyLabel}+N`,
+      action: { type: 'ui', actionId: 'new-conversation' },
+    });
+  }
+
+  if (ctx.conversationCount >= 2) {
+    commands.push({
+      id: 'toggle-sidebar',
+      label: ctx.sidebarVisible ? 'Hide conversations' : 'Show conversations',
+      group: 'Control',
+      keywords: ['sidebar', 'conversations', 'list', 'toggle'],
+      shortcut: `${ctx.modKeyLabel}+B`,
+      action: { type: 'ui', actionId: 'toggle-sidebar' },
     });
   }
 

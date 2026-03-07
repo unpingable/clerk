@@ -12,8 +12,10 @@
 
   interface Props {
     detailsOpen: boolean;
+    conversationCount: number;
+    sidebarVisible: boolean;
   }
-  let { detailsOpen }: Props = $props();
+  let { detailsOpen, conversationCount, sidebarVisible }: Props = $props();
 
   let open = $state(false);
   let query = $state('');
@@ -31,6 +33,8 @@
     appliedTemplateId: tmpl.getAppliedTemplateId(),
     modKeyLabel,
     templates: tmpl.getTemplates().map(t => ({ id: t.id, name: t.name })),
+    conversationCount,
+    sidebarVisible,
   });
 
   const commands = $derived(buildCommands(ctx));
@@ -86,6 +90,8 @@
     if (id === 'focus-chat') { window.dispatchEvent(new CustomEvent('clerk:focus-input')); return; }
     if (id === 'toggle-details') { window.dispatchEvent(new CustomEvent('clerk:toggle-details')); return; }
     if (id === 'change-backend') { window.dispatchEvent(new CustomEvent('clerk:change-backend')); return; }
+    if (id === 'new-conversation') { chat.newConversation(); return; }
+    if (id === 'toggle-sidebar') { window.dispatchEvent(new CustomEvent('clerk:toggle-sidebar')); return; }
     if (id.startsWith('request-template:')) { tmpl.requestTemplate(id.slice('request-template:'.length)); return; }
     if (id.startsWith('activity-filter:')) {
       window.dispatchEvent(new CustomEvent('clerk:open-details'));

@@ -36,6 +36,9 @@ export const Channels = {
   TEMPLATES_CURRENT: 'templates:current',
   TEMPLATES_APPLY: 'templates:apply',
 
+  // File attachments (drag-and-drop absolute read)
+  FILES_READ_ABSOLUTE: 'files:read:absolute',
+
   // File operations
   FILES_READ: 'files:read',
   FILES_WRITE: 'files:write',
@@ -70,6 +73,14 @@ export const Channels = {
   // Activity feed
   ACTIVITY_LIST: 'activity:list',
   ACTIVITY_EVENT: 'activity:event',
+
+  // Conversations
+  CONV_LIST: 'conv:list',
+  CONV_LOAD: 'conv:load',
+  CONV_SAVE: 'conv:save',
+  CONV_DELETE: 'conv:delete',
+  CONV_RENAME: 'conv:rename',
+  CONV_SET_ACTIVE: 'conv:setActive',
 } as const;
 
 export type Channel = (typeof Channels)[keyof typeof Channels];

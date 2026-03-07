@@ -54,6 +54,10 @@ const api: ClerkAPI = {
   templatesCurrent: () => ipcRenderer.invoke(Channels.TEMPLATES_CURRENT),
   templatesApply: (req) => ipcRenderer.invoke(Channels.TEMPLATES_APPLY, req),
 
+  // File attachments (drag-and-drop)
+  readAbsoluteFile: (absolutePath: string) =>
+    ipcRenderer.invoke(Channels.FILES_READ_ABSOLUTE, absolutePath),
+
   // File operations
   fileRead: (relativePath: string) =>
     ipcRenderer.invoke(Channels.FILES_READ, relativePath),
@@ -107,6 +111,14 @@ const api: ClerkAPI = {
   // Settings
   settingsGetAll: () => ipcRenderer.invoke(Channels.SETTINGS_GET_ALL),
   settingsSet: (partial) => ipcRenderer.invoke(Channels.SETTINGS_SET, partial),
+
+  // Conversations
+  conversationList: () => ipcRenderer.invoke(Channels.CONV_LIST),
+  conversationLoad: (id: string) => ipcRenderer.invoke(Channels.CONV_LOAD, id),
+  conversationSave: (data) => ipcRenderer.invoke(Channels.CONV_SAVE, data),
+  conversationDelete: (id: string) => ipcRenderer.invoke(Channels.CONV_DELETE, id),
+  conversationRename: (id: string, title: string) => ipcRenderer.invoke(Channels.CONV_RENAME, id, title),
+  conversationSetActive: (id) => ipcRenderer.invoke(Channels.CONV_SET_ACTIVE, id),
 
   // Activity feed
   activityList: (limit?) => ipcRenderer.invoke(Channels.ACTIVITY_LIST, limit),

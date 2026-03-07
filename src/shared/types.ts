@@ -31,6 +31,7 @@ export interface ChatMessage {
   receipt?: ReceiptRef | null;
   violations?: ViolationRef[];
   fileActions?: FileAction[];
+  attachments?: Array<{ name: string; size: number }>;
 }
 
 export interface ReceiptRef {
@@ -428,6 +429,24 @@ export type FilePatchResponse = FilePatchResult | FileErrorResult;
 export type FileFindResponse = FileFindResult | FileErrorResult;
 export type FileGrepResponse = FileGrepResult | FileErrorResult;
 
+// --- File Attachments (drag-and-drop) ---
+
+export interface FileAttachment {
+  name: string;        // basename
+  path: string;        // absolute path (pending state only, not persisted on messages)
+  size: number;        // bytes
+  content: string;     // UTF-8 (held until send, then cleared)
+  contentHash: string;
+}
+
+export type AttachFileResult =
+  | { ok: true; attachment: FileAttachment }
+  | { ok: false; name: string; error: string };
+
+export type DroppedFileReadResponse =
+  | { ok: true; content: string; contentHash: string; size: number }
+  | { ok: false; error: string };
+
 // --- File Actions (tool loop) ---
 
 export interface FileAction {
@@ -473,6 +492,48 @@ export interface BackendStatus {
 export type BackendConfigureResult =
   | { ok: true; status: BackendStatus }
   | { ok: false; error: { code: string; message: string } };
+
+// --- Conversations ---
+
+export interface PersistedChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+  receipt?: ReceiptRef;
+  violations?: ViolationRef[];
+  fileActions?: FileAction[];
+  attachments?: Array<{ name: string; size: number }>;
+}
+
+export interface ConversationMeta {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+}
+
+export interface ConversationData {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: PersistedChatMessage[];
+}
+
+export type ConversationListResult = {
+  conversations: ConversationMeta[];
+  activeId: string | null;
+};
+
+export type ConversationLoadResult =
+  | { ok: true; conversation: ConversationData }
+  | { ok: false; error: string };
+
+export type ConversationSaveResult =
+  | { ok: true; meta: ConversationMeta }
+  | { ok: false; error: string };
 
 // --- Settings ---
 
@@ -521,6 +582,9 @@ export interface ClerkAPI {
   templatesCurrent(): Promise<TemplateState>;
   templatesApply(req: TemplateApplyRequest): Promise<TemplateApplyResult>;
 
+  // File attachments (drag-and-drop)
+  readAbsoluteFile(absolutePath: string): Promise<DroppedFileReadResponse>;
+
   // File operations
   fileRead(relativePath: string): Promise<FileReadResponse>;
   fileWrite(relativePath: string, content: string): Promise<FileWriteResponse>;
@@ -558,6 +622,14 @@ export interface ClerkAPI {
   // Settings
   settingsGetAll(): Promise<ClerkSettings>;
   settingsSet(partial: Partial<ClerkSettings>): Promise<ClerkSettings>;
+
+  // Conversations
+  conversationList(): Promise<ConversationListResult>;
+  conversationLoad(id: string): Promise<ConversationLoadResult>;
+  conversationSave(data: ConversationData): Promise<ConversationSaveResult>;
+  conversationDelete(id: string): Promise<boolean>;
+  conversationRename(id: string, title: string): Promise<ConversationMeta | null>;
+  conversationSetActive(id: string | null): Promise<void>;
 
   // Connection state events
   onConnectionState(cb: (state: string) => void): void;

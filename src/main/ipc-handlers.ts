@@ -8,6 +8,7 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { ipcMain, BrowserWindow } from 'electron';
 import { Channels } from '../shared/channels.js';
 import { GovernorClient } from './rpc-client.js';
@@ -17,8 +18,9 @@ import type { FileManager } from './file-manager.js';
 import type { ToolLoop, AskGate } from './tool-loop.js';
 import type { ActivityManager } from './activity-manager.js';
 import type { SettingsManager } from './settings-manager.js';
+import type { ConversationManager } from './conversation-manager.js';
 import type { DaemonResolveResult } from './daemon-resolver.js';
-import type { TemplateApplyRequest, AskRequest, AskGrantToken, AskDecision, BackendConfig, BackendConfigureResult } from '../shared/types.js';
+import type { TemplateApplyRequest, AskRequest, AskGrantToken, AskDecision, BackendConfig, BackendConfigureResult, ConversationData } from '../shared/types.js';
 import { validateBackendConfig, writeDaemonConf, probeBackend } from './backend-config.js';
 import type { BackendConfigIO } from './backend-config.js';
 
@@ -168,6 +170,7 @@ export function registerIpcHandlers(
   activityManager: ActivityManager | null = null,
   askGateState: AskGateState | null = null,
   settingsManager: SettingsManager | null = null,
+  conversationManager: ConversationManager | null = null,
   governorDir: string | null = null,
   configIO: BackendConfigIO | null = null,
 ): void {
@@ -512,6 +515,86 @@ export function registerIpcHandlers(
     if (!settingsManager) return { friendlyMode: true };
     if (typeof partial !== 'object' || partial === null) return settingsManager.getAll();
     return settingsManager.set(partial as Partial<{ friendlyMode: boolean }>);
+  });
+
+  // --- File Attachments (absolute read for drag-and-drop) ---
+
+  const MAX_ATTACH_SIZE = 2 * 1024 * 1024; // 2 MB
+
+  ipcMain.handle(Channels.FILES_READ_ABSOLUTE, async (_event, absolutePath: unknown) => {
+    if (typeof absolutePath !== 'string' || !absolutePath) {
+      return { ok: false, error: 'Invalid file path.' };
+    }
+    try {
+      let stat: fs.Stats;
+      try {
+        stat = fs.lstatSync(absolutePath);
+      } catch {
+        return { ok: false, error: `File not found: couldn't read that file.` };
+      }
+      if (stat.isSymbolicLink()) {
+        return { ok: false, error: "Links can't be attached directly." };
+      }
+      if (stat.isDirectory()) {
+        return { ok: false, error: "Folders can't be attached." };
+      }
+      if (!stat.isFile()) {
+        return { ok: false, error: "That item can't be attached." };
+      }
+      if (stat.size > MAX_ATTACH_SIZE) {
+        return { ok: false, error: 'That file is too large (max 2 MB).' };
+      }
+      const buf = fs.readFileSync(absolutePath);
+      // NUL byte check
+      if (buf.includes(0)) {
+        return { ok: false, error: 'That file appears to be binary.' };
+      }
+      // UTF-8 roundtrip check
+      const text = buf.toString('utf-8');
+      const roundtrip = Buffer.from(text, 'utf-8');
+      if (!buf.equals(roundtrip)) {
+        return { ok: false, error: 'That file appears to be binary.' };
+      }
+      const contentHash = crypto.createHash('sha256').update(buf).digest('hex');
+      return { ok: true, content: text, contentHash, size: buf.length };
+    } catch (err) {
+      return { ok: false, error: sanitizeError(err) };
+    }
+  });
+
+  // --- Conversations ---
+
+  ipcMain.handle(Channels.CONV_LIST, async () => {
+    if (!conversationManager) return { conversations: [], activeId: null };
+    return conversationManager.list();
+  });
+
+  ipcMain.handle(Channels.CONV_LOAD, async (_event, id: unknown) => {
+    if (!conversationManager) return { ok: false, error: 'Conversations not available.' };
+    if (typeof id !== 'string') return { ok: false, error: 'ID must be a string.' };
+    return conversationManager.load(id);
+  });
+
+  ipcMain.handle(Channels.CONV_SAVE, async (_event, data: unknown) => {
+    if (!conversationManager) return { ok: false, error: 'Conversations not available.' };
+    return conversationManager.save(data as ConversationData);
+  });
+
+  ipcMain.handle(Channels.CONV_DELETE, async (_event, id: unknown) => {
+    if (!conversationManager) return false;
+    if (typeof id !== 'string') return false;
+    return conversationManager.delete(id);
+  });
+
+  ipcMain.handle(Channels.CONV_RENAME, async (_event, id: unknown, title: unknown) => {
+    if (!conversationManager) return null;
+    if (typeof id !== 'string' || typeof title !== 'string') return null;
+    return conversationManager.rename(id, title);
+  });
+
+  ipcMain.handle(Channels.CONV_SET_ACTIVE, async (_event, id: unknown) => {
+    if (!conversationManager) return;
+    conversationManager.setActive(typeof id === 'string' ? id : null);
   });
 
   // --- Activity Feed ---

@@ -10,6 +10,7 @@
   import ActivityPanel from './components/ActivityPanel.svelte';
   import SettingsGear from './components/SettingsGear.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
+  import ConversationSidebar from './components/ConversationSidebar.svelte';
   import * as conn from './stores/connection.svelte';
   import * as chat from './stores/chat.svelte';
   import * as tmpl from './stores/template.svelte';
@@ -23,6 +24,16 @@
   let backendNeeded = $state(false);
   let backendStatus = $state<BackendStatus | null>(null);
   let detailsOpen = $state(false);
+
+  // Sidebar state (session-only)
+  let sidebarUserToggled = $state<boolean | null>(null);
+  const canShowSidebar = $derived(chat.getConversationList().length >= 2);
+  const sidebarVisible = $derived(canShowSidebar && (sidebarUserToggled ?? true));
+
+  // Reset toggle when count drops below 2
+  $effect(() => {
+    if (!canShowSidebar) sidebarUserToggled = null;
+  });
 
   const daemonOk = $derived(daemonStatus?.ok === true);
   const blockedCount = $derived(activity.getBlockedCount());
@@ -48,6 +59,22 @@
     if (mod && e.key === 'k') {
       e.preventDefault();
       window.dispatchEvent(new CustomEvent('clerk:focus-input'));
+      return;
+    }
+
+    // Cmd/Ctrl+N: new conversation
+    if (mod && e.key === 'n') {
+      e.preventDefault();
+      if (!chat.state.streaming) chat.newConversation();
+      return;
+    }
+
+    // Cmd/Ctrl+B: toggle sidebar (only when 2+ conversations)
+    if (mod && e.key === 'b') {
+      e.preventDefault();
+      if (canShowSidebar) {
+        sidebarUserToggled = sidebarUserToggled === null ? false : !sidebarUserToggled;
+      }
       return;
     }
 
@@ -85,6 +112,8 @@
     chat.loadModels();
     tmpl.initialize();
     activity.loadEvents();
+    await chat.loadConversationList();
+    await chat.restoreActiveConversation();
   }
 
   function onBackendConfigured() {
@@ -106,10 +135,16 @@
 
     function handleToggleDetails() { detailsOpen = !detailsOpen; }
     function handleOpenDetails() { detailsOpen = true; }
+    function handleToggleSidebar() {
+      if (canShowSidebar) {
+        sidebarUserToggled = sidebarUserToggled === null ? false : !sidebarUserToggled;
+      }
+    }
 
     window.addEventListener('clerk:change-backend', handleChangeBackend);
     window.addEventListener('clerk:toggle-details', handleToggleDetails);
     window.addEventListener('clerk:open-details', handleOpenDetails);
+    window.addEventListener('clerk:toggle-sidebar', handleToggleSidebar);
 
     api.daemonStatus().then(async (status) => {
       daemonStatus = status;
@@ -151,6 +186,7 @@
       window.removeEventListener('clerk:change-backend', handleChangeBackend);
       window.removeEventListener('clerk:toggle-details', handleToggleDetails);
       window.removeEventListener('clerk:open-details', handleOpenDetails);
+      window.removeEventListener('clerk:toggle-sidebar', handleToggleSidebar);
     };
   });
 </script>
@@ -178,6 +214,9 @@
       <SetupWizard status={backendStatus} onConfigured={onBackendConfigured} />
     {:else if daemonOk}
       <div class="workspace">
+        {#if sidebarVisible}
+          <div class="workspace-sidebar"><ConversationSidebar /></div>
+        {/if}
         <div class="workspace-chat"><Chat /></div>
         {#if detailsOpen}
           <div class="workspace-details"><ActivityPanel /></div>
@@ -201,7 +240,7 @@
       </button>
     </div>
   {/if}
-  <CommandPalette {detailsOpen} />
+  <CommandPalette {detailsOpen} conversationCount={chat.getConversationList().length} {sidebarVisible} />
 </div>
 
 <style>
@@ -240,6 +279,11 @@
     display: flex;
     height: 100%;
     min-height: 0;
+  }
+  .workspace-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    overflow: hidden;
   }
   .workspace-chat {
     flex: 1;
