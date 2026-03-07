@@ -232,7 +232,10 @@ export class TemplateManager {
       }
 
       this.applying = false;
-      const message = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      const message = /timed?\s*out/i.test(raw) ? "Couldn't apply that mode in time. Try again."
+        : /^RPC\s+-?\d+/i.test(raw) || /jsonrpc|method.*not\s+found/i.test(raw) ? "Couldn't apply that mode. The engine may need updating."
+        : raw;
       this.lastError = { code: 'COMPILE_FAILED', message };
 
       // Record failed mode change

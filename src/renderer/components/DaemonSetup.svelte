@@ -7,17 +7,16 @@
   let { status }: { status: DaemonStatusErr } = $props();
 
   const friendly = $derived(settings.friendlyMode);
-  const heading = $derived(friendly ? 'Clerk needs its engine installed' : 'Clerk needs Governor');
+  const heading = $derived(friendly ? 'Clerk needs its engine' : 'Clerk needs Governor');
 
-  // Human-friendly advice per failure reason
   const advice = $derived(
     status.reason === 'NOT_FOUND'
-      ? 'Clerk needs the Governor daemon to work. Install it and try again.'
+      ? 'Clerk needs the Governor engine to run. Install it and restart Clerk.'
       : status.reason === 'NOT_EXECUTABLE'
-        ? 'Found a governor binary but it isn\'t executable. Check file permissions.'
+        ? 'Found Governor, but it isn\'t executable. Check file permissions.'
         : status.reason === 'BAD_BINARY'
-          ? 'Found a governor binary but it didn\'t respond correctly. It may be corrupted or the wrong version.'
-          : 'Something went wrong trying to start the governor daemon.'
+          ? 'Found Governor, but it didn\'t respond correctly. It may need updating.'
+          : 'Clerk couldn\'t start its engine.'
   );
 </script>
 
@@ -68,11 +67,7 @@
       </div>
 
       <p class="hint">
-        After installing, restart Clerk. The governor binary needs to be on your PATH.
-      </p>
-
-      <p class="hint">
-        Power users: set <code>GOVERNOR_BIN</code> to point at a specific binary.
+        After installing, restart Clerk.
       </p>
     </div>
   </div>

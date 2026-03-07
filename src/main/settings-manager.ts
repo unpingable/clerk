@@ -11,6 +11,7 @@ import path from 'node:path';
 
 export interface ClerkSettings {
   friendlyMode: boolean;
+  theme: 'dark' | 'light';
 }
 
 interface SettingsFile {
@@ -18,7 +19,7 @@ interface SettingsFile {
   settings: ClerkSettings;
 }
 
-const DEFAULTS: ClerkSettings = { friendlyMode: true };
+const DEFAULTS: ClerkSettings = { friendlyMode: true, theme: 'dark' };
 
 export interface SettingsManagerIO {
   readFileSync(path: string, encoding: 'utf-8'): string;
@@ -62,6 +63,9 @@ export class SettingsManager {
     if (typeof partial.friendlyMode === 'boolean') {
       this.current.friendlyMode = partial.friendlyMode;
     }
+    if (partial.theme === 'dark' || partial.theme === 'light') {
+      this.current.theme = partial.theme;
+    }
     this.persist();
     return { ...this.current };
   }
@@ -82,6 +86,9 @@ export class SettingsManager {
         friendlyMode: typeof data.settings.friendlyMode === 'boolean'
           ? data.settings.friendlyMode
           : DEFAULTS.friendlyMode,
+        theme: data.settings.theme === 'dark' || data.settings.theme === 'light'
+          ? data.settings.theme
+          : DEFAULTS.theme,
       };
     } catch {
       // Corrupt JSON or read error

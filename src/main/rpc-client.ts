@@ -26,6 +26,19 @@ import type {
 } from '../shared/types.js';
 
 // ---------------------------------------------------------------------------
+// Error sanitization — strip RPC internals before they reach the renderer
+// ---------------------------------------------------------------------------
+
+function sanitizeRpcError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/timed?\s*out/i.test(raw)) return "Clerk couldn't get a response in time. Try again.";
+  if (/method.*not\s+found|unknown\s+method|-32601/i.test(raw)) return "Clerk couldn't complete that request. The engine may need updating.";
+  if (/^RPC\s+-?\d+/i.test(raw) || /jsonrpc/i.test(raw)) return "Clerk couldn't complete that request. Try again.";
+  if (/ECONNREFUSED|EPIPE|ENOTCONN|broken\s+pipe|connection\s+(refused|reset)/i.test(raw)) return "Clerk lost its connection to the engine. Try restarting.";
+  return raw;
+}
+
+// ---------------------------------------------------------------------------
 // Scope check
 // ---------------------------------------------------------------------------
 
@@ -283,6 +296,27 @@ export class GovernorClient {
   stop(): void { this.transport.stop(); }
   get isRunning(): boolean { return this.transport.isRunning; }
 
+  restart(): void {
+    this.transport.stop();
+    this.transport = new StdioTransport(this.binPath, this.governorDir, this.mode);
+    // Re-wire notification handler (same pattern as setGovernorDir)
+    this.transport.onNotification((method, params) => {
+      if (method === 'chat.delta') {
+        const p = params as { stream_id?: string; content?: string };
+        const streamId = p.stream_id;
+        if (streamId) {
+          const stream = this.activeStreams.get(streamId);
+          stream?.onDelta({ content: p.content });
+        } else {
+          for (const stream of this.activeStreams.values()) {
+            stream.onDelta({ content: (params as { content?: string }).content });
+          }
+        }
+      }
+    });
+    this.transport.start();
+  }
+
   setGovernorDir(dir: string): void {
     this.transport.stop();
     this.governorDir = dir;
@@ -365,7 +399,7 @@ export class GovernorClient {
       .catch((err) => {
         const stream = this.activeStreams.get(streamId);
         if (stream) {
-          stream.onEnd({ receipt: null, violations: [{ description: String(err) }] });
+          stream.onEnd({ receipt: null, violations: [{ description: sanitizeRpcError(err) }] });
           this.activeStreams.delete(streamId);
         }
       });

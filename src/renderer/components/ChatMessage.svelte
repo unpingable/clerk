@@ -3,6 +3,7 @@
 <script lang="ts">
   import type { ChatMessage } from '$shared/types';
   import { formatTimestamp } from '$lib/format';
+  import { normalizeStreamingContent } from '$lib/normalize';
   import ReceiptStrip from './ReceiptStrip.svelte';
   import FileActionStrip from './FileActionStrip.svelte';
 
@@ -10,13 +11,18 @@
 
   const isUser = $derived(message.role === 'user');
   const isStreaming = $derived(message.streaming ?? false);
+  // Strip <tool_calls> envelope during streaming (raw content still accumulates for tool parsing).
+  // Finalized messages are already normalized by the chat store's onEnd handler.
+  const displayContent = $derived(
+    isStreaming ? normalizeStreamingContent(message.content) : message.content,
+  );
 </script>
 
 <div class="message" class:user={isUser} class:assistant={!isUser}>
   <div class="bubble">
     <div class="role">{isUser ? 'You' : 'Clerk'}</div>
     <div class="content">
-      {message.content}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
+      {displayContent}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
     </div>
     {#if message.fileActions?.length}
       {#each message.fileActions as action}

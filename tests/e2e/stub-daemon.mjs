@@ -21,6 +21,7 @@
  */
 
 import path from 'node:path';
+import fs from 'node:fs';
 
 // Handle --version probe from daemon-resolver
 if (process.argv.includes('--version')) {
@@ -40,6 +41,46 @@ let activeProfile = 'production'; // default
 let compileCount = 0;
 let chatTurnCount = 0;
 const scenario = process.env.E2E_CHAT_SCENARIO ?? '';
+
+// Extract --root from argv for daemon.conf-aware model responses
+const rootIdx = process.argv.indexOf('--root');
+const governorDir = rootIdx !== -1 ? process.argv[rootIdx + 1] : null;
+
+/** Read daemon.conf and determine if models should be returned. */
+function shouldReturnModels() {
+  if (!governorDir) return true; // backwards compat: no --root → return models
+  const confPath = path.join(governorDir, 'daemon.conf');
+  try {
+    if (!fs.existsSync(confPath)) {
+      // No daemon.conf: only return empty models if E2E_BACKEND_CHECK is set.
+      // This preserves backward compat for all existing tests.
+      return process.env.E2E_BACKEND_CHECK !== '1';
+    }
+    const raw = fs.readFileSync(confPath, 'utf-8');
+    // Parse type
+    const typeMatch = raw.match(/^type\s*=\s*(\S+)/m);
+    if (!typeMatch) return false;
+    const backendType = typeMatch[1];
+
+    if (backendType === 'anthropic') {
+      const keyMatch = raw.match(/^anthropic\.api_key\s*=\s*(\S+)/m);
+      if (!keyMatch) return false;
+      // bad-key → no models; anything starting with sk-ant → models
+      if (keyMatch[1] === 'bad-key') return false;
+      return true;
+    }
+    if (backendType === 'ollama') {
+      const urlMatch = raw.match(/^ollama\.url\s*=\s*(\S+)/m);
+      if (urlMatch && urlMatch[1].includes('badhost')) return false;
+      return true;
+    }
+    // claude-code, codex
+    if (process.env.E2E_CLI_ABSENT === '1') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Extract contentHash from tool_results in a chat message.
@@ -94,9 +135,12 @@ async function handleRequest(msg) {
       }});
 
     case 'chat.models':
-      return send({ jsonrpc: '2.0', id, result: {
-        models: [{ id: 'stub-model', name: 'Stub Model', backend: 'stub' }],
-      }});
+      if (shouldReturnModels()) {
+        return send({ jsonrpc: '2.0', id, result: {
+          models: [{ id: 'stub-model', name: 'Stub Model', backend: 'stub' }],
+        }});
+      }
+      return send({ jsonrpc: '2.0', id, result: { models: [] } });
 
     case 'chat.stream': {
       chatTurnCount++;

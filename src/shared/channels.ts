@@ -59,6 +59,10 @@ export const Channels = {
   // File action events (tool loop)
   CHAT_FILE_ACTION: 'clerk:chat:file-action',
 
+  // Backend config
+  BACKEND_STATUS: 'backend:status',
+  BACKEND_CONFIGURE: 'backend:configure',
+
   // Settings
   SETTINGS_GET_ALL: 'settings:getAll',
   SETTINGS_SET: 'settings:set',

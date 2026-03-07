@@ -40,8 +40,8 @@
           or managing your project.
         </p>
         <p>
-          Everything I do is tracked in the Activity panel, so you can
-          always see what happened and why.
+          Everything I do is tracked &mdash; click Details in the status bar
+          to see what happened and why.
         </p>
         <p class="settings-hint">
           Prefer technical terms? You can switch in &#9881; Settings.

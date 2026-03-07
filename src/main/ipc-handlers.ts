@@ -18,11 +18,45 @@ import type { ToolLoop, AskGate } from './tool-loop.js';
 import type { ActivityManager } from './activity-manager.js';
 import type { SettingsManager } from './settings-manager.js';
 import type { DaemonResolveResult } from './daemon-resolver.js';
-import type { TemplateApplyRequest, AskRequest, AskGrantToken, AskDecision } from '../shared/types.js';
+import type { TemplateApplyRequest, AskRequest, AskGrantToken, AskDecision, BackendConfig, BackendConfigureResult } from '../shared/types.js';
+import { validateBackendConfig, writeDaemonConf, probeBackend } from './backend-config.js';
+import type { BackendConfigIO } from './backend-config.js';
 
 function requireDaemon(client: GovernorClient | null): GovernorClient {
   if (!client) throw new Error('Governor daemon not available. Check daemon status for details.');
   return client;
+}
+
+/**
+ * Strip RPC codes, method names, and transport internals from errors
+ * before they reach the renderer. Users should see what failed and
+ * what to do next — not plumbing.
+ */
+function sanitizeError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  // RPC timeout → calm retry prompt
+  if (/timed?\s*out/i.test(raw)) {
+    return "Clerk couldn't get a response in time. Try again.";
+  }
+
+  // RPC method-not-found or protocol mismatch
+  if (/method.*not\s+found|unknown\s+method|-32601/i.test(raw)) {
+    return "Clerk couldn't complete that request. The engine may need to be restarted or updated.";
+  }
+
+  // Generic RPC error code pattern (e.g. "RPC -32700: ...")
+  if (/^RPC\s+-?\d+/i.test(raw) || /jsonrpc/i.test(raw)) {
+    return "Clerk couldn't complete that request. Try again.";
+  }
+
+  // Connection refused / broken pipe / transport errors
+  if (/ECONNREFUSED|EPIPE|ENOTCONN|broken\s+pipe|connection\s+(refused|reset)/i.test(raw)) {
+    return "Clerk lost its connection to the engine. Try restarting.";
+  }
+
+  // If the message already looks clean (no RPC codes, no stack frames), pass it through
+  return raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +168,8 @@ export function registerIpcHandlers(
   activityManager: ActivityManager | null = null,
   askGateState: AskGateState | null = null,
   settingsManager: SettingsManager | null = null,
+  governorDir: string | null = null,
+  configIO: BackendConfigIO | null = null,
 ): void {
   // --- Daemon Resolver ---
 
@@ -196,7 +232,7 @@ export function registerIpcHandlers(
       ).catch((err) => {
         win.webContents.send(Channels.CHAT_STREAM_END, {
           streamId,
-          result: { receipt: null, violations: [{ description: String(err) }] },
+          result: { receipt: null, violations: [{ description: sanitizeError(err) }] },
         });
       });
 
@@ -393,6 +429,76 @@ export function registerIpcHandlers(
     }
     const bp = typeof basePath === 'string' ? basePath : '.';
     return fileManager.fileGrep(query, bp);
+  });
+
+  // --- Backend Config ---
+
+  ipcMain.handle(Channels.BACKEND_STATUS, async () => {
+    if (!client || !governorDir || !configIO) {
+      return { state: 'daemon_unhealthy' as const, models: [], message: 'Clerk engine is not ready.' };
+    }
+    return probeBackend(client, governorDir, configIO);
+  });
+
+  ipcMain.handle(Channels.BACKEND_CONFIGURE, async (_event, config: unknown): Promise<BackendConfigureResult> => {
+    if (!client || !governorDir || !configIO) {
+      return { ok: false, error: { code: 'DAEMON_NOT_READY', message: 'Clerk engine is not ready.' } };
+    }
+
+    const cfg = config as BackendConfig;
+
+    // 1. Validate
+    const validationErr = validateBackendConfig(cfg);
+    if (validationErr) {
+      return { ok: false, error: { code: 'INVALID_CONFIG', message: validationErr } };
+    }
+
+    // 2. Write daemon.conf
+    try {
+      writeDaemonConf(governorDir, cfg, configIO);
+    } catch (err) {
+      return { ok: false, error: { code: 'WRITE_FAILED', message: sanitizeError(err) } };
+    }
+
+    // 3. Restart daemon
+    try {
+      client.restart();
+    } catch (err) {
+      return { ok: false, error: { code: 'RESTART_FAILED', message: sanitizeError(err) } };
+    }
+
+    // 4. Poll health up to 5s
+    let healthOk = false;
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      try {
+        const h = await client.health();
+        if (h.status === 'ok') { healthOk = true; break; }
+      } catch { /* keep polling */ }
+    }
+
+    if (!healthOk) {
+      return { ok: false, error: { code: 'RESTART_FAILED', message: 'Daemon did not become healthy after restart.' } };
+    }
+
+    // 5. Probe backend
+    const status = await probeBackend(client, governorDir, configIO);
+    if (status.state !== 'ready') {
+      const code = status.state === 'unreachable' ? 'BACKEND_UNREACHABLE'
+        : cfg.type === 'anthropic' ? 'AUTH_FAILED'
+        : 'NO_MODELS';
+      const msg = cfg.type === 'anthropic' ? 'Check your API key.'
+        : cfg.type === 'ollama' ? `Make sure Ollama is running at ${cfg.ollamaUrl || 'http://localhost:11434'}.`
+        : `Couldn't find the required command in PATH.`;
+      return { ok: false, error: { code, message: msg } };
+    }
+
+    // 6. Re-apply persisted template (best-effort)
+    templateManager?.applyPersistedTemplate().catch(err =>
+      console.error('[clerk] template re-apply after restart:', err)
+    );
+
+    return { ok: true, status };
   });
 
   // --- Settings ---

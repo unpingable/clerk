@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Single row in the activity feed. -->
+<!-- Single row in the activity log — inspector style. -->
 <script lang="ts">
   import type { ActivityEvent } from '$shared/types';
   import { settings } from '../stores/settings.svelte';
@@ -8,23 +8,30 @@
   let { event }: { event: ActivityEvent } = $props();
 
   const friendly = $derived(settings.friendlyMode);
-
   const statusClass = $derived(event.allowed ? 'allowed' : 'blocked');
-  const statusIcon = $derived(event.allowed ? '\u2713' : '\u2717');
   const timeStr = $derived(formatTime(event.ts));
+
+  const metaParts = $derived(buildMeta());
+
+  function buildMeta(): string {
+    const parts: string[] = [];
+    if (event.mode?.templateName) parts.push(event.mode.templateName);
+    parts.push(timeStr);
+    return parts.join(' \u00b7 ');
+  }
 
   let showDetails = $state(false);
 
   function formatTime(iso: string): string {
     try {
       const d = new Date(iso);
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     } catch {
       return iso;
     }
   }
 
-  let copyLabel = $state('Copy details');
+  let copyLabel = $state('Copy');
 
   function copyDetails(): void {
     const payload = {
@@ -45,9 +52,8 @@
     const text = JSON.stringify(payload, null, 2);
     navigator.clipboard.writeText(text).then(() => {
       copyLabel = 'Copied';
-      setTimeout(() => { copyLabel = 'Copy details'; }, 1500);
+      setTimeout(() => { copyLabel = 'Copy'; }, 1500);
     }).catch(() => {
-      // Fallback for restricted Electron contexts
       const ta = document.createElement('textarea');
       ta.value = text;
       ta.style.position = 'fixed';
@@ -57,34 +63,36 @@
       document.execCommand('copy');
       document.body.removeChild(ta);
       copyLabel = 'Copied';
-      setTimeout(() => { copyLabel = 'Copy details'; }, 1500);
+      setTimeout(() => { copyLabel = 'Copy'; }, 1500);
     });
   }
 </script>
 
-<div class="row" class:blocked-row={!event.allowed}
+<div class="row"
   data-kind={event.kind}
   data-status={event.status ?? (event.allowed ? 'allowed' : 'blocked')}
   data-error-code={event.errorCode ?? ''}>
   <div class="row-main" role="button" tabindex="0"
     onclick={() => showDetails = !showDetails}
     onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') showDetails = !showDetails; }}>
-    <span class="status {statusClass}">{statusIcon}</span>
+    <span class="dot {statusClass}"></span>
     <span class="summary">{event.summary}</span>
-    <span class="time">{timeStr}</span>
   </div>
+  <div class="meta">{metaParts}</div>
   {#if showDetails}
     <div class="details">
-      <div class="detail-line">Mode: {event.mode.templateName}{friendly ? '' : ` (${event.mode.governorProfile})`}</div>
       {#if event.reason}
-        <div class="detail-line">Reason: {event.reason}</div>
+        <div class="detail-line"><span class="detail-label">Reason:</span> {event.reason}</div>
       {/if}
       {#if event.errorCode}
         {@const errInfo = friendlyError(event.errorCode, friendly)}
-        <div class="detail-line" title={errInfo.tooltip}>Error: {errInfo.label}</div>
+        <div class="detail-line" title={errInfo.tooltip}><span class="detail-label">Error:</span> {errInfo.label}</div>
+      {/if}
+      {#if !friendly && event.mode?.governorProfile}
+        <div class="detail-line"><span class="detail-label">Profile:</span> {event.mode.governorProfile}</div>
       {/if}
       {#if event.correlationId && !friendly}
-        <div class="detail-line">Correlation: {event.correlationId}</div>
+        <div class="detail-line"><span class="detail-label">Correlation:</span> {event.correlationId}</div>
       {/if}
       <button class="copy-btn" onclick={copyDetails}>{copyLabel}</button>
     </div>
@@ -93,60 +101,76 @@
 
 <style>
   .row {
-    border-bottom: 1px solid var(--clerk-border);
-    padding: var(--sp-xs) var(--sp-sm);
+    padding: 6px 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--clerk-border) 50%, transparent);
   }
-  .blocked-row {
-    background: rgba(255, 107, 107, 0.05);
+  .row:hover {
+    background: var(--clerk-bg-secondary);
   }
   .row-main {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 6px;
     cursor: pointer;
     user-select: none;
   }
-  .status {
-    font-size: 10px;
-    font-weight: 600;
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
     flex-shrink: 0;
+    margin-top: 2px;
+    align-self: flex-start;
   }
-  .allowed { color: var(--clerk-pass); }
-  .blocked { color: var(--clerk-block); }
+  .dot.allowed {
+    background: var(--clerk-text-muted);
+    opacity: 0.5;
+  }
+  .dot.blocked {
+    background: var(--clerk-block);
+  }
   .summary {
     flex: 1;
     font-size: var(--font-size-xs);
     color: var(--clerk-text-secondary);
+    line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .time {
+  .meta {
+    margin-left: 12px;
+    margin-top: 1px;
     font-size: 10px;
     color: var(--clerk-text-muted);
-    flex-shrink: 0;
-    font-family: var(--font-mono);
+    line-height: 1.2;
   }
   .details {
-    padding: var(--sp-xs) var(--sp-sm) var(--sp-xs) 20px;
+    margin-top: 4px;
+    margin-left: 12px;
+    padding-left: 8px;
+    border-left: 1px solid var(--clerk-border);
     font-size: 10px;
     color: var(--clerk-text-muted);
   }
   .detail-line {
     padding: 1px 0;
-    font-family: var(--font-mono);
+    line-height: 1.4;
+  }
+  .detail-label {
+    color: var(--clerk-text-muted);
   }
   .copy-btn {
-    margin-top: var(--sp-xs);
-    padding: 2px 8px;
+    margin-top: 4px;
+    padding: 1px 6px;
     font-size: 10px;
-    background: var(--clerk-surface);
-    color: var(--clerk-text-secondary);
-    border: 1px solid var(--clerk-border);
-    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--clerk-text-muted);
+    border: none;
     cursor: pointer;
   }
   .copy-btn:hover {
-    background: var(--clerk-surface-hover);
+    color: var(--clerk-text-secondary);
+    text-decoration: underline;
   }
 </style>

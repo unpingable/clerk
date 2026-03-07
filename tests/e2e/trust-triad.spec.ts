@@ -28,6 +28,12 @@ function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-trust-'));
 }
 
+/** Open the details drawer by clicking the toggle button. */
+async function openDetailsDrawer(page: Awaited<ReturnType<typeof launchApp>>['page']) {
+  await page.locator('.details-toggle').click();
+  await expect(page.locator('.workspace-details')).toBeVisible({ timeout: 3000 });
+}
+
 async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
   const { createRequire } = await import('node:module');
   const require = createRequire(import.meta.url);
@@ -72,13 +78,16 @@ test.describe('Trust Triad', () => {
     });
 
     try {
+      // Open details drawer to see activity
+      await openDetailsDrawer(page);
+
       // Switch to "Take the wheel" (research profile) — triggers ASK_REQUIRED for overwrite
-      const picker = page.locator('select.picker').first();
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
       await picker.selectOption('take_the_wheel');
 
       // Wait for "Mode set to" in activity feed to confirm template applied
-      const modeRow = page.locator('.split-activity .row .summary', { hasText: 'Mode set to' });
+      const modeRow = page.locator('.workspace-details .row .summary', { hasText: 'Mode set to' });
       await expect(modeRow.first()).toBeVisible({ timeout: 10000 });
 
       // Send chat message to trigger overwrite flow
@@ -122,13 +131,16 @@ test.describe('Trust Triad', () => {
     });
 
     try {
+      // Open details drawer to see activity
+      await openDetailsDrawer(page);
+
       // Switch to "Take the wheel" (research profile)
-      const picker = page.locator('select.picker').first();
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
       await picker.selectOption('take_the_wheel');
 
       // Wait for template to apply
-      const modeRow = page.locator('.split-activity .row .summary', { hasText: 'Mode set to' });
+      const modeRow = page.locator('.workspace-details .row .summary', { hasText: 'Mode set to' });
       await expect(modeRow.first()).toBeVisible({ timeout: 10000 });
 
       // Send chat message
@@ -163,8 +175,11 @@ test.describe('Trust Triad', () => {
     });
 
     try {
+      // Open details drawer to see activity
+      await openDetailsDrawer(page);
+
       // Default template (production) — no need to switch
-      const picker = page.locator('select.picker').first();
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
 
       // Send chat message
@@ -206,8 +221,11 @@ test.describe('Trust Triad', () => {
     });
 
     try {
+      // Open details drawer to see activity
+      await openDetailsDrawer(page);
+
       // Default template (production)
-      const picker = page.locator('select.picker').first();
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
 
       // Send chat message

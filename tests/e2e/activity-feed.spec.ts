@@ -52,9 +52,15 @@ async function launchApp(governorDir: string, extraEnv: Record<string, string> =
   return { app, page };
 }
 
+/** Open the details drawer by clicking the toggle button. */
+async function openDetailsDrawer(page: Awaited<ReturnType<typeof launchApp>>['page']) {
+  await page.locator('.details-toggle').click();
+  await expect(page.locator('.workspace-details')).toBeVisible({ timeout: 3000 });
+}
+
 /** Count activity rows matching a summary text. */
 async function countFeedEvents(page: Awaited<ReturnType<typeof launchApp>>['page'], summaryMatch: string | RegExp): Promise<number> {
-  const summaries = page.locator('.split-activity .row .summary');
+  const summaries = page.locator('.workspace-details .row .summary');
   const count = await summaries.count();
   let matches = 0;
   for (let i = 0; i < count; i++) {
@@ -77,12 +83,27 @@ test.describe('Activity Feed', () => {
     fs.rmSync(governorDir, { recursive: true, force: true });
   });
 
+  test('details panel is closed by default', async () => {
+    const { app, page } = await launchApp(governorDir);
+    try {
+      // workspace-details should NOT be in the DOM when closed
+      await expect(page.locator('.workspace-details')).toHaveCount(0);
+      // Details toggle button should show "Details ▸"
+      await expect(page.locator('.details-toggle')).toContainText('Details');
+    } finally {
+      await app.close();
+    }
+  });
+
   test('strict profile: write blocked appears in feed', async () => {
     const { app, page } = await launchApp(governorDir);
 
     try {
+      // Open the details drawer first
+      await openDetailsDrawer(page);
+
       // Switch to "Look around" template (strict profile)
-      const picker = page.locator('select.picker').first();
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
       await picker.selectOption('look_around');
       await expect(page.locator('.status.applying')).toBeHidden({ timeout: 5000 });
@@ -92,24 +113,24 @@ test.describe('Activity Feed', () => {
       await page.locator('button.send-btn').click();
 
       // Wait for blocked event in activity panel
-      const blockedRow = page.locator('.split-activity .row .blocked');
+      const blockedRow = page.locator('.workspace-details .row .dot.blocked');
       await expect(blockedRow.first()).toBeVisible({ timeout: 15000 });
 
       // Verify summary text
-      const summary = page.locator('.split-activity .row .summary').first();
+      const summary = page.locator('.workspace-details .row .summary').first();
       await expect(summary).toContainText('Blocked', { timeout: 5000 });
 
       // No duplicate: exactly one blocked-write event
       const blockedWriteCount = await countFeedEvents(page, /Blocked from creating/);
       expect(blockedWriteCount).toBe(1);
 
-      // "Blocked" filter shows only blocked rows
-      await page.locator('.split-activity .filter-btn', { hasText: 'Blocked' }).click();
-      const rows = page.locator('.split-activity .row');
+      // "Blocked" / "Stopped" filter shows only blocked rows (label depends on friendly mode)
+      await page.locator('.workspace-details .filter-btn', { hasText: /Blocked|Stopped/ }).click();
+      const rows = page.locator('.workspace-details .row');
       const count = await rows.count();
       expect(count).toBeGreaterThan(0);
       for (let i = 0; i < count; i++) {
-        await expect(rows.nth(i).locator('.blocked')).toBeVisible();
+        await expect(rows.nth(i).locator('.dot.blocked')).toBeVisible();
       }
     } finally {
       await app.close();
@@ -120,8 +141,11 @@ test.describe('Activity Feed', () => {
     const { app, page } = await launchApp(governorDir);
 
     try {
+      // Open the details drawer first
+      await openDetailsDrawer(page);
+
       // Default template is "help_me_edit" (production profile)
-      const picker = page.locator('select.picker').first();
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
       await expect(picker).toHaveValue('help_me_edit');
 
@@ -130,11 +154,11 @@ test.describe('Activity Feed', () => {
       await page.locator('button.send-btn').click();
 
       // Wait for allowed event in activity panel
-      const allowedRow = page.locator('.split-activity .row .allowed');
+      const allowedRow = page.locator('.workspace-details .row .dot.allowed');
       await expect(allowedRow.first()).toBeVisible({ timeout: 15000 });
 
       // Verify summary text
-      const summary = page.locator('.split-activity .row .summary').first();
+      const summary = page.locator('.workspace-details .row .summary').first();
       await expect(summary).toContainText('Created', { timeout: 5000 });
 
       // No duplicate: exactly one created event
@@ -147,13 +171,9 @@ test.describe('Activity Feed', () => {
       expect(fs.existsSync(createdFile)).toBe(true);
       expect(fs.readFileSync(createdFile, 'utf-8')).toBe('hello from e2e');
 
-      // Expand row — verify stable subset of details
-      await page.locator('.split-activity .row-main').first().click();
-      const details = page.locator('.split-activity .details').first();
-      await expect(details).toBeVisible({ timeout: 3000 });
-      // Assert on stable fields only: template name and profile
-      await expect(details).toContainText('Help me edit');
-      await expect(details).toContainText('production');
+      // Verify row shows template name in metadata
+      const firstRow = page.locator('.workspace-details .row').first();
+      await expect(firstRow).toContainText('Help me edit');
     } finally {
       await app.close();
     }
@@ -164,7 +184,10 @@ test.describe('Activity Feed', () => {
     const { app, page } = await launchApp(governorDir, { E2E_COMPILE_FAIL_ON: '2' });
 
     try {
-      const picker = page.locator('select.picker').first();
+      // Open the details drawer first
+      await openDetailsDrawer(page);
+
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
 
       // The default template (help_me_edit) applied on startup (compile #1 succeeds).
@@ -179,7 +202,7 @@ test.describe('Activity Feed', () => {
       await expect(picker).toHaveValue('look_around');
 
       // Activity feed should show "Mode change failed"
-      const failedEvent = page.locator('.split-activity .row .summary', { hasText: 'Mode change failed' });
+      const failedEvent = page.locator('.workspace-details .row .summary', { hasText: 'Mode change failed' });
       await expect(failedEvent.first()).toBeVisible({ timeout: 5000 });
 
       // No duplicate: exactly one mode-change failure event
@@ -188,7 +211,7 @@ test.describe('Activity Feed', () => {
 
       // Expand the failed mode-change row to see details
       // Find the row containing the failure and click its main section
-      const failRow = page.locator('.split-activity .row', { hasText: 'Mode change failed' }).first();
+      const failRow = page.locator('.workspace-details .row', { hasText: 'Mode change failed' }).first();
       await failRow.locator('.row-main').click();
       const details = failRow.locator('.details');
       await expect(details).toBeVisible({ timeout: 3000 });

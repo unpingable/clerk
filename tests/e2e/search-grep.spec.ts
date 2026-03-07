@@ -24,6 +24,12 @@ function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-search-'));
 }
 
+/** Open the details drawer by clicking the toggle button. */
+async function openDetailsDrawer(page: Awaited<ReturnType<typeof launchApp>>['page']) {
+  await page.locator('.details-toggle').click();
+  await expect(page.locator('.workspace-details')).toBeVisible({ timeout: 3000 });
+}
+
 async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
   const { createRequire } = await import('node:module');
   const require = createRequire(import.meta.url);
@@ -70,8 +76,11 @@ test.describe('Search/Grep', () => {
     });
 
     try {
+      // Open details drawer to see activity events
+      await openDetailsDrawer(page);
+
       // Wait for default template
-      const picker = page.locator('select.picker').first();
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
 
       // Send chat message to trigger grep
@@ -114,7 +123,10 @@ test.describe('Search/Grep', () => {
     });
 
     try {
-      const picker = page.locator('select.picker').first();
+      // Open details drawer to see activity events
+      await openDetailsDrawer(page);
+
+      const picker = page.locator('.status-bar select.picker');
       await picker.waitFor({ timeout: 5000 });
 
       // Send chat message to trigger grep

@@ -9,6 +9,7 @@
  */
 
 import { api } from '$lib/api';
+import { normalizeAssistantContent } from '$lib/normalize';
 import type { ChatMessage, ChatStreamDelta, ChatStreamEnd, ChatFileActionEvent, ModelInfo, PendingViolation, AskRequest } from '$shared/types';
 
 // --- State ---
@@ -98,6 +99,7 @@ export function onEnd(data: ChatStreamEnd): void {
   if (data.streamId !== state.currentStreamId) return;
   const last = messages[messages.length - 1];
   if (last?.role === 'assistant') {
+    last.content = normalizeAssistantContent(last.content);
     last.streaming = false;
     last.receipt = data.result.receipt ?? null;
     last.violations = data.result.violations ?? [];

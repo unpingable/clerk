@@ -39,10 +39,23 @@
     textareaEl?.focus();
   }
 
+  function handlePrefillEvent(e: Event) {
+    const { text } = (e as CustomEvent<{ text: string }>).detail;
+    inputValue = text;
+    textareaEl?.focus();
+    requestAnimationFrame(() => {
+      if (textareaEl) {
+        textareaEl.selectionStart = textareaEl.selectionEnd = textareaEl.value.length;
+      }
+    });
+  }
+
   $effect(() => {
     window.addEventListener('clerk:focus-input', handleFocusEvent);
+    window.addEventListener('clerk:prefill-input', handlePrefillEvent);
     return () => {
       window.removeEventListener('clerk:focus-input', handleFocusEvent);
+      window.removeEventListener('clerk:prefill-input', handlePrefillEvent);
     };
   });
 </script>

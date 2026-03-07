@@ -23,6 +23,12 @@ function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-patch-'));
 }
 
+/** Open the details drawer by clicking the toggle button. */
+async function openDetailsDrawer(page: Awaited<ReturnType<typeof launchApp>>['page']) {
+  await page.locator('.details-toggle').click();
+  await expect(page.locator('.workspace-details')).toBeVisible({ timeout: 3000 });
+}
+
 async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
   const { createRequire } = await import('node:module');
   const require = createRequire(import.meta.url);
@@ -67,6 +73,9 @@ test.describe('file_patch', () => {
     });
 
     try {
+      // Open details drawer to see activity events
+      await openDetailsDrawer(page);
+
       // Send a message to trigger the patch flow
       const textarea = page.locator('textarea');
       await textarea.fill('patch the file');
@@ -98,6 +107,9 @@ test.describe('file_patch', () => {
     });
 
     try {
+      // Open details drawer to see activity events
+      await openDetailsDrawer(page);
+
       // Send a message to trigger the patch flow
       const textarea = page.locator('textarea');
       await textarea.fill('patch the file');

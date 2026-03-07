@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Right panel showing the activity feed. -->
+<!-- Inspector drawer — quiet activity log. -->
 <script lang="ts">
   import ActivityEventRow from './ActivityEventRow.svelte';
   import * as activity from '../stores/activity.svelte';
@@ -21,7 +21,7 @@
 
 <div class="panel">
   <div class="panel-header">
-    <span class="panel-title">Activity</span>
+    <span class="panel-title">Details</span>
     <div class="filters">
       {#each filters as f}
         <button
@@ -36,7 +36,7 @@
     {#if loading}
       <div class="empty">Loading...</div>
     {:else if filteredEvents.length === 0}
-      <div class="empty">No activity yet</div>
+      <div class="empty">No activity yet.</div>
     {:else}
       {#each filteredEvents as event (event.id)}
         <ActivityEventRow {event} />
@@ -57,25 +57,24 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--sp-sm);
+    padding: 6px 10px;
     border-bottom: 1px solid var(--clerk-border);
-    background: var(--clerk-bg-secondary);
   }
   .panel-title {
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--clerk-text);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    color: var(--clerk-text-muted);
   }
   .filters {
     display: flex;
-    gap: 2px;
+    gap: 1px;
   }
   .filter-btn {
-    padding: 2px 8px;
+    padding: 1px 6px;
     font-size: 10px;
     background: transparent;
     color: var(--clerk-text-muted);
-    border: 1px solid transparent;
+    border: none;
     border-radius: var(--radius-sm);
     cursor: pointer;
   }
@@ -83,18 +82,16 @@
     color: var(--clerk-text-secondary);
   }
   .filter-btn.active {
-    background: var(--clerk-surface);
     color: var(--clerk-text);
-    border-color: var(--clerk-border);
+    background: var(--clerk-surface);
   }
   .event-list {
     flex: 1;
     overflow-y: auto;
   }
   .empty {
-    padding: var(--sp-lg);
-    text-align: center;
+    padding: var(--sp-md) var(--sp-sm);
     color: var(--clerk-text-muted);
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
   }
 </style>

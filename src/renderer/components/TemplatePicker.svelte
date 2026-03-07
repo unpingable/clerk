@@ -93,7 +93,7 @@
     cursor: not-allowed;
   }
   .picker.mismatch {
-    border-color: var(--clerk-warning, #e9a820);
+    border-color: var(--clerk-warn);
   }
   .status {
     font-size: var(--font-size-xs);
@@ -102,7 +102,7 @@
     color: var(--clerk-text-muted);
   }
   .status.error {
-    color: var(--clerk-error, #e53935);
+    color: var(--clerk-block);
     font-weight: bold;
     cursor: help;
   }
@@ -157,13 +157,13 @@
     font-weight: 500;
   }
   .level-allow {
-    color: var(--clerk-success, #43a047);
+    color: var(--clerk-pass);
   }
   .level-ask {
-    color: var(--clerk-warning, #e9a820);
+    color: var(--clerk-warn);
   }
   .level-deny {
-    color: var(--clerk-error, #e53935);
+    color: var(--clerk-block);
   }
   .confirm-actions {
     display: flex;
@@ -183,9 +183,9 @@
     color: var(--clerk-text);
   }
   .btn-confirm {
-    background: var(--clerk-error, #e53935);
+    background: var(--clerk-block);
     color: white;
-    border-color: var(--clerk-error, #e53935);
+    border-color: var(--clerk-block);
   }
   .btn-confirm:hover {
     opacity: 0.9;

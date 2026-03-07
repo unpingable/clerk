@@ -1,25 +1,31 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Clerk app shell: header + main area. Day 1 is chat-only. -->
+<!-- Clerk app shell: header + status bar + collapsible details drawer. -->
 <script lang="ts">
   import Chat from './views/Chat.svelte';
   import ConnectionBadge from './components/ConnectionBadge.svelte';
   import ModelPicker from './components/ModelPicker.svelte';
   import TemplatePicker from './components/TemplatePicker.svelte';
   import DaemonSetup from './components/DaemonSetup.svelte';
+  import SetupWizard from './components/SetupWizard.svelte';
   import ActivityPanel from './components/ActivityPanel.svelte';
   import SettingsGear from './components/SettingsGear.svelte';
+  import CommandPalette from './components/CommandPalette.svelte';
   import * as conn from './stores/connection.svelte';
   import * as chat from './stores/chat.svelte';
   import * as tmpl from './stores/template.svelte';
   import * as activity from './stores/activity.svelte';
   import { loadSettings } from './stores/settings.svelte';
   import { api } from '$lib/api';
-  import type { DaemonStatus, DaemonStatusErr } from '$shared/types';
+  import type { DaemonStatus, DaemonStatusErr, BackendStatus } from '$shared/types';
 
   let daemonStatus = $state<DaemonStatus | null>(null);
   let loading = $state(true);
+  let backendNeeded = $state(false);
+  let backendStatus = $state<BackendStatus | null>(null);
+  let detailsOpen = $state(false);
 
   const daemonOk = $derived(daemonStatus?.ok === true);
+  const blockedCount = $derived(activity.getBlockedCount());
 
   // --- Keyboard shortcuts ---
 
@@ -31,6 +37,13 @@
     const target = e.target as HTMLElement;
     const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 
+    // Cmd/Ctrl+P: open command palette
+    if (mod && e.key === 'p') {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('clerk:open-palette'));
+      return;
+    }
+
     // Cmd/Ctrl+K: focus chat input (always active)
     if (mod && e.key === 'k') {
       e.preventDefault();
@@ -40,6 +53,13 @@
 
     // Ignore other shortcuts when in input fields
     if (isInput) return;
+
+    // Cmd/Ctrl+D: toggle details panel
+    if (mod && e.key === 'd') {
+      e.preventDefault();
+      detailsOpen = !detailsOpen;
+      return;
+    }
 
     // Cmd/Ctrl+Shift+Backspace: clear chat (press-twice guard)
     if (mod && e.shiftKey && e.key === 'Backspace') {
@@ -56,12 +76,43 @@
     }
   }
 
+  function openDetailsBlocked() {
+    detailsOpen = true;
+    activity.setFilter('blocked');
+  }
+
+  async function loadBackendReadyState() {
+    chat.loadModels();
+    tmpl.initialize();
+    activity.loadEvents();
+  }
+
+  function onBackendConfigured() {
+    backendNeeded = false;
+    loadBackendReadyState();
+  }
+
   // Check daemon status, then wire up if ok
   $effect(() => {
     loadSettings();
-    api.daemonStatus().then((status) => {
+
+    function handleChangeBackend() {
+      if (!daemonOk) return;
+      api.backendStatus().then((bs) => {
+        backendStatus = bs;
+        backendNeeded = true;
+      });
+    }
+
+    function handleToggleDetails() { detailsOpen = !detailsOpen; }
+    function handleOpenDetails() { detailsOpen = true; }
+
+    window.addEventListener('clerk:change-backend', handleChangeBackend);
+    window.addEventListener('clerk:toggle-details', handleToggleDetails);
+    window.addEventListener('clerk:open-details', handleOpenDetails);
+
+    api.daemonStatus().then(async (status) => {
       daemonStatus = status;
-      loading = false;
 
       if (status.ok) {
         api.onChatDelta(chat.onDelta);
@@ -73,10 +124,18 @@
           conn.setConnectionState(state as 'connected' | 'degraded' | 'disconnected');
         });
         conn.startPolling(3000);
-        chat.loadModels();
-        tmpl.initialize();
-        activity.loadEvents();
+
+        // Probe backend before revealing UI
+        const bs = await api.backendStatus();
+        backendStatus = bs;
+        if (bs.state !== 'ready') {
+          backendNeeded = true;
+        } else {
+          await loadBackendReadyState();
+        }
       }
+
+      loading = false;
     }).catch(() => {
       loading = false;
     });
@@ -89,6 +148,9 @@
       api.offAskRequest();
       api.offActivityEvent();
       api.offConnectionState();
+      window.removeEventListener('clerk:change-backend', handleChangeBackend);
+      window.removeEventListener('clerk:toggle-details', handleToggleDetails);
+      window.removeEventListener('clerk:open-details', handleOpenDetails);
     };
   });
 </script>
@@ -99,10 +161,8 @@
   <header class="header">
     <h1 class="title">Clerk</h1>
     <div class="controls">
-      {#if daemonOk}
-        <TemplatePicker />
+      {#if daemonOk && !backendNeeded}
         <ModelPicker />
-        <ConnectionBadge />
       {/if}
       <SettingsGear />
     </div>
@@ -110,15 +170,38 @@
   <main class="main">
     {#if loading}
       <div class="loading">Starting up...</div>
+    {:else if !daemonOk}
+      {#if daemonStatus}
+        <DaemonSetup status={daemonStatus as DaemonStatusErr} />
+      {/if}
+    {:else if backendNeeded && backendStatus}
+      <SetupWizard status={backendStatus} onConfigured={onBackendConfigured} />
     {:else if daemonOk}
-      <div class="split">
-        <div class="split-chat"><Chat /></div>
-        <div class="split-activity"><ActivityPanel /></div>
+      <div class="workspace">
+        <div class="workspace-chat"><Chat /></div>
+        {#if detailsOpen}
+          <div class="workspace-details"><ActivityPanel /></div>
+        {/if}
       </div>
-    {:else if daemonStatus}
-      <DaemonSetup status={daemonStatus as DaemonStatusErr} />
     {/if}
   </main>
+  {#if daemonOk && !backendNeeded && !loading}
+    <div class="status-bar">
+      <TemplatePicker />
+      <span class="status-sep">&middot;</span>
+      <ConnectionBadge />
+      {#if blockedCount > 0}
+        <span class="status-sep">&middot;</span>
+        <button type="button" class="status-blocked" onclick={openDetailsBlocked}>
+          {blockedCount} blocked
+        </button>
+      {/if}
+      <button type="button" class="details-toggle" onclick={() => detailsOpen = !detailsOpen}>
+        {detailsOpen ? 'Details \u25C2' : 'Details \u25B8'}
+      </button>
+    </div>
+  {/if}
+  <CommandPalette {detailsOpen} />
 </div>
 
 <style>
@@ -151,18 +234,62 @@
   .main {
     flex: 1;
     overflow: hidden;
+    min-height: 0;
   }
-  .split {
+  .workspace {
     display: flex;
     height: 100%;
+    min-height: 0;
   }
-  .split-chat {
-    flex: 65;
+  .workspace-chat {
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .workspace-details {
+    width: 320px;
+    flex-shrink: 0;
     overflow: hidden;
   }
-  .split-activity {
-    flex: 35;
-    overflow: hidden;
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    padding: var(--sp-xs) var(--sp-md);
+    border-top: 1px solid var(--clerk-border);
+    background: var(--clerk-bg-secondary);
+    font-size: var(--font-size-xs);
+    color: var(--clerk-text-muted);
+    -webkit-app-region: no-drag;
+  }
+  .status-sep { opacity: 0.4; }
+  .status-blocked {
+    background: none;
+    color: var(--clerk-block);
+    font-size: var(--font-size-xs);
+    padding: 0;
+    cursor: pointer;
+  }
+  .status-blocked:hover { text-decoration: underline; }
+  .status-blocked:focus-visible {
+    outline: 2px solid var(--clerk-block);
+    outline-offset: 2px;
+  }
+  .details-toggle {
+    margin-left: auto;
+    background: none;
+    color: var(--clerk-text-muted);
+    font-size: var(--font-size-xs);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+  }
+  .details-toggle:hover {
+    color: var(--clerk-text);
+    background: var(--clerk-surface);
+  }
+  .details-toggle:focus-visible {
+    outline: 2px solid var(--clerk-accent);
+    outline-offset: 2px;
   }
   .loading {
     display: flex;

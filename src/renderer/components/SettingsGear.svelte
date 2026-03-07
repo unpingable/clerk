@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Gear icon with dropdown for settings (always visible). -->
 <script lang="ts">
-  import { settings, setFriendlyMode } from '../stores/settings.svelte';
+  import { settings, setFriendlyMode, setTheme } from '../stores/settings.svelte';
 
   let open = $state(false);
 
@@ -16,10 +16,16 @@
     }
   }
 
-  function handleCheckbox(e: Event) {
+  function handleFriendlyCheckbox(e: Event) {
     e.stopPropagation();
     const checked = (e.target as HTMLInputElement).checked;
     setFriendlyMode(checked);
+  }
+
+  function handleThemeCheckbox(e: Event) {
+    e.stopPropagation();
+    const checked = (e.target as HTMLInputElement).checked;
+    setTheme(checked ? 'light' : 'dark');
   }
 </script>
 
@@ -35,9 +41,17 @@
         <input
           type="checkbox"
           checked={settings.friendlyMode}
-          onchange={handleCheckbox}
+          onchange={handleFriendlyCheckbox}
         />
         <span>Simple language</span>
+      </label>
+      <label class="setting-row">
+        <input
+          type="checkbox"
+          checked={settings.theme === 'light'}
+          onchange={handleThemeCheckbox}
+        />
+        <span>Light theme</span>
       </label>
     </div>
   {/if}
@@ -73,6 +87,9 @@
     min-width: 180px;
     z-index: 100;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-xs);
   }
   .setting-row {
     display: flex;

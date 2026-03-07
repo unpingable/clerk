@@ -450,10 +450,37 @@ export interface ChatFileActionEvent {
 
 export type { ActivityKind, ActivityDecisionSource, ActivityFilter, AppliedModeInfo, ActivityEvent } from './activity-types.js';
 
+// --- Backend Config ---
+
+export type BackendType = 'anthropic' | 'ollama' | 'claude-code' | 'codex';
+
+export interface BackendConfig {
+  type: BackendType;
+  apiKey?: string;
+  ollamaUrl?: string;
+}
+
+export type BackendState = 'daemon_unhealthy' | 'missing' | 'unreachable' | 'no_models' | 'ready';
+
+export interface BackendStatus {
+  state: BackendState;
+  type?: BackendType;
+  models: ModelInfo[];
+  message?: string;
+  existingConfig?: BackendConfig;
+}
+
+export type BackendConfigureResult =
+  | { ok: true; status: BackendStatus }
+  | { ok: false; error: { code: string; message: string } };
+
 // --- Settings ---
+
+export type ClerkTheme = 'dark' | 'light';
 
 export interface ClerkSettings {
   friendlyMode: boolean;
+  theme: ClerkTheme;
 }
 
 // --- Preload API shape ---
@@ -523,6 +550,10 @@ export interface ClerkAPI {
   activityList(limit?: number): Promise<{ events: import('./activity-types.js').ActivityEvent[] }>;
   onActivityEvent(cb: (event: import('./activity-types.js').ActivityEvent) => void): void;
   offActivityEvent(): void;
+
+  // Backend config
+  backendStatus(): Promise<BackendStatus>;
+  backendConfigure(config: BackendConfig): Promise<BackendConfigureResult>;
 
   // Settings
   settingsGetAll(): Promise<ClerkSettings>;

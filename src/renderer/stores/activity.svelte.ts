@@ -29,6 +29,10 @@ export function getFilteredEvents(): ActivityEvent[] {
   return all;
 }
 
+export function getBlockedCount(): number {
+  return events.filter(e => !e.allowed).length;
+}
+
 export function setFilter(f: ActivityFilter): void {
   filter = f;
 }

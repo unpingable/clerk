@@ -26,15 +26,15 @@ describe('SettingsManager', () => {
   it('returns defaults when no file exists', () => {
     const io = makeIO();
     const mgr = new SettingsManager('/tmp/settings', io);
-    expect(mgr.getAll()).toEqual({ friendlyMode: true });
+    expect(mgr.getAll()).toEqual({ friendlyMode: true, theme: 'dark' });
   });
 
   it('round-trips getAll/set', () => {
     const io = makeIO();
     const mgr = new SettingsManager('/tmp/settings', io);
     const result = mgr.set({ friendlyMode: false });
-    expect(result).toEqual({ friendlyMode: false });
-    expect(mgr.getAll()).toEqual({ friendlyMode: false });
+    expect(result).toEqual({ friendlyMode: false, theme: 'dark' });
+    expect(mgr.getAll()).toEqual({ friendlyMode: false, theme: 'dark' });
   });
 
   it('partial merge preserves other keys', () => {
@@ -43,7 +43,7 @@ describe('SettingsManager', () => {
     mgr.set({ friendlyMode: false });
     // Set with empty partial — nothing changes
     const result = mgr.set({});
-    expect(result).toEqual({ friendlyMode: false });
+    expect(result).toEqual({ friendlyMode: false, theme: 'dark' });
   });
 
   it('persists to disk and loads on next construction', () => {
@@ -53,7 +53,7 @@ describe('SettingsManager', () => {
 
     // New manager reads persisted file
     const mgr2 = new SettingsManager('/tmp/settings', io);
-    expect(mgr2.getAll()).toEqual({ friendlyMode: false });
+    expect(mgr2.getAll()).toEqual({ friendlyMode: false, theme: 'dark' });
   });
 
   it('atomic write: writes to tmp, then renames', () => {
@@ -81,7 +81,7 @@ describe('SettingsManager', () => {
     const renameSpy = vi.spyOn(io, 'renameSync');
 
     const mgr = new SettingsManager('/tmp/settings', io);
-    expect(mgr.getAll()).toEqual({ friendlyMode: true });
+    expect(mgr.getAll()).toEqual({ friendlyMode: true, theme: 'dark' });
 
     // Should have renamed the corrupt file
     expect(renameSpy).toHaveBeenCalledWith(
@@ -96,7 +96,7 @@ describe('SettingsManager', () => {
     });
 
     const mgr = new SettingsManager('/tmp/settings', io);
-    expect(mgr.getAll()).toEqual({ friendlyMode: true });
+    expect(mgr.getAll()).toEqual({ friendlyMode: true, theme: 'dark' });
     // Corrupt file renamed away
     expect(io.existsSync('/tmp/settings/clerk-settings.json')).toBe(false);
   });
@@ -105,16 +105,33 @@ describe('SettingsManager', () => {
     const io = makeIO();
     // No client, no daemon — just settings
     const mgr = new SettingsManager('/tmp/settings', io);
-    expect(mgr.getAll()).toEqual({ friendlyMode: true });
+    expect(mgr.getAll()).toEqual({ friendlyMode: true, theme: 'dark' });
     mgr.set({ friendlyMode: false });
-    expect(mgr.getAll()).toEqual({ friendlyMode: false });
+    expect(mgr.getAll()).toEqual({ friendlyMode: false, theme: 'dark' });
+  });
+
+  it('round-trips theme setting', () => {
+    const io = makeIO();
+    const mgr = new SettingsManager('/tmp/settings', io);
+    mgr.set({ theme: 'light' });
+    expect(mgr.getAll()).toEqual({ friendlyMode: true, theme: 'light' });
+
+    const mgr2 = new SettingsManager('/tmp/settings', io);
+    expect(mgr2.getAll()).toEqual({ friendlyMode: true, theme: 'light' });
+  });
+
+  it('rejects invalid theme values', () => {
+    const io = makeIO();
+    const mgr = new SettingsManager('/tmp/settings', io);
+    mgr.set({ theme: 'neon' as any });
+    expect(mgr.getAll().theme).toBe('dark');
   });
 
   it('ignores unknown keys in partial', () => {
     const io = makeIO();
     const mgr = new SettingsManager('/tmp/settings', io);
     const result = mgr.set({ friendlyMode: false, bogus: 42 } as any);
-    expect(result).toEqual({ friendlyMode: false });
+    expect(result).toEqual({ friendlyMode: false, theme: 'dark' });
     expect((result as any).bogus).toBeUndefined();
   });
 });

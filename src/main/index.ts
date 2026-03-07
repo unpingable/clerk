@@ -27,6 +27,7 @@ import { getTemplateById, getDefaultTemplate } from '../shared/templates.js';
 import type { FileManagerIO } from './file-manager.js';
 import type { ActivityLogIO } from './activity-log.js';
 import type { DaemonResolveResult } from './daemon-resolver.js';
+import type { BackendConfigIO } from './backend-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -92,6 +93,14 @@ const activityLogIO: ActivityLogIO = {
   writeFileSync: (p, data) => fs.writeFileSync(p, data, { encoding: 'utf-8' }),
 };
 
+const backendConfigIO: BackendConfigIO = {
+  writeFileSync: (p, d) => fs.writeFileSync(p, d),
+  renameSync: (s, d) => fs.renameSync(s, d),
+  existsSync: (p) => fs.existsSync(p),
+  unlinkSync: (p) => fs.unlinkSync(p),
+  readFileSync: (p, enc) => fs.readFileSync(p, enc),
+};
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 900,
@@ -149,7 +158,7 @@ app.whenReady().then(() => {
     const win = createWindow();
     askGateState = makeAskGate(() => BrowserWindow.getAllWindows()[0]);
     toolLoop = new ToolLoop(client, fileManager, askGateState.gate, activityManager);
-    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState, settingsManager);
+    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState, settingsManager, governorDir, backendConfigIO);
     activityManager.attachBroadcast(win.webContents);
     monitor.start();
 
@@ -167,7 +176,7 @@ app.whenReady().then(() => {
     console.error(`[clerk] daemon not found: ${resolveResult.reason} — ${resolveResult.detail}`);
     console.error(`[clerk] tried: ${resolveResult.tried.join(', ')}`);
     // Still launch the window — renderer will show the first-run screen
-    registerIpcHandlers(null, null, resolveResult, null, null, null, null, null, settingsManager);
+    registerIpcHandlers(null, null, resolveResult, null, null, null, null, null, settingsManager, null, null);
     createWindow();
   }
 });
