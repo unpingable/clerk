@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { ipcMain, BrowserWindow } from 'electron';
 import { Channels } from '../shared/channels.js';
-import { GovernorClient } from './rpc-client.js';
+import type { ClerkBackend } from './backend.js';
 import { ConnectionMonitor } from './connection.js';
 import type { TemplateManager } from './template-manager.js';
 import type { FileManager } from './file-manager.js';
@@ -24,9 +24,9 @@ import type { TemplateApplyRequest, AskRequest, AskGrantToken, AskDecision, Back
 import { validateBackendConfig, writeDaemonConf, probeBackend } from './backend-config.js';
 import type { BackendConfigIO } from './backend-config.js';
 
-function requireDaemon(client: GovernorClient | null): GovernorClient {
-  if (!client) throw new Error('Governor daemon not available. Check daemon status for details.');
-  return client;
+function requireBackend(backend: ClerkBackend | null): ClerkBackend {
+  if (!backend) throw new Error('Backend not available. Check daemon status for details.');
+  return backend;
 }
 
 /**
@@ -161,7 +161,7 @@ export function makeAskGate(getWin: () => BrowserWindow | undefined): AskGateSta
 // ---------------------------------------------------------------------------
 
 export function registerIpcHandlers(
-  client: GovernorClient | null,
+  backend: ClerkBackend | null,
   monitor: ConnectionMonitor | null,
   daemonResult: DaemonResolveResult,
   templateManager: TemplateManager | null = null,
@@ -183,11 +183,11 @@ export function registerIpcHandlers(
   // --- Connection ---
 
   ipcMain.handle(Channels.HEALTH, async () => {
-    return requireDaemon(client).health();
+    return requireBackend(backend).health();
   });
 
   ipcMain.handle(Channels.CONNECT, async (_event, dirOrUrl: string) => {
-    requireDaemon(client).setGovernorDir(dirOrUrl);
+    requireBackend(backend).setProjectDir(dirOrUrl);
     monitor?.stop();
     monitor?.start();
   });
@@ -195,21 +195,21 @@ export function registerIpcHandlers(
   // --- Governor State ---
 
   ipcMain.handle(Channels.NOW, async () => {
-    return requireDaemon(client).now();
+    return requireBackend(backend).now();
   });
 
   ipcMain.handle(Channels.STATUS, async () => {
-    return requireDaemon(client).status();
+    return requireBackend(backend).status();
   });
 
   // --- Chat ---
 
   ipcMain.handle(Channels.CHAT_SEND, async (_event, messages, options) => {
-    return requireDaemon(client).chatSend(messages, options);
+    return requireBackend(backend).sendChat(messages, options);
   });
 
   ipcMain.handle(Channels.CHAT_STREAM_START, async (_event, messages, options) => {
-    const c = requireDaemon(client);
+    const b = requireBackend(backend);
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) throw new Error('No window available for streaming');
 
@@ -242,15 +242,17 @@ export function registerIpcHandlers(
       return { streamId };
     }
 
-    // Fallback: direct client streaming (no tool loop)
-    const directStreamId = await c.chatStreamStart(
+    // Fallback: direct backend streaming (no tool loop)
+    await b.streamChat(
       messages,
-      options,
-      (delta) => {
-        win.webContents.send(Channels.CHAT_STREAM_DELTA, { streamId, delta });
-      },
-      (result) => {
-        win.webContents.send(Channels.CHAT_STREAM_END, { streamId, result });
+      options ?? {},
+      {
+        onDelta: (delta) => {
+          win.webContents.send(Channels.CHAT_STREAM_DELTA, { streamId, delta });
+        },
+        onEnd: (result) => {
+          win.webContents.send(Channels.CHAT_STREAM_END, { streamId, result });
+        },
       },
     );
 
@@ -273,35 +275,35 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.CHAT_MODELS, async () => {
-    return requireDaemon(client).chatModels();
+    return requireBackend(backend).listModels();
   });
 
   // --- Receipts ---
 
   ipcMain.handle(Channels.RECEIPTS_LIST, async (_event, filter?: { gate?: string; verdict?: string; limit?: number }) => {
-    return requireDaemon(client).listReceipts(filter);
+    return requireBackend(backend).listReceipts(filter);
   });
 
   ipcMain.handle(Channels.RECEIPTS_DETAIL, async (_event, receiptId: string) => {
-    return requireDaemon(client).receiptDetail(receiptId);
+    return requireBackend(backend).receiptDetail(receiptId);
   });
 
   // --- Commit / Waive ---
 
   ipcMain.handle(Channels.COMMIT_PENDING, async () => {
-    return requireDaemon(client).commitPending();
+    return requireBackend(backend).commitPending();
   });
 
   ipcMain.handle(Channels.COMMIT_FIX, async (_event, correctedText?: string) => {
-    return requireDaemon(client).commitFix(correctedText);
+    return requireBackend(backend).commitFix(correctedText);
   });
 
   ipcMain.handle(Channels.COMMIT_REVISE, async () => {
-    return requireDaemon(client).commitRevise();
+    return requireBackend(backend).commitRevise();
   });
 
   ipcMain.handle(Channels.COMMIT_PROCEED, async (_event, reason: string) => {
-    return requireDaemon(client).commitProceed(reason);
+    return requireBackend(backend).commitProceed(reason);
   });
 
   // --- Templates ---
@@ -437,14 +439,14 @@ export function registerIpcHandlers(
   // --- Backend Config ---
 
   ipcMain.handle(Channels.BACKEND_STATUS, async () => {
-    if (!client || !governorDir || !configIO) {
+    if (!backend || !governorDir || !configIO) {
       return { state: 'daemon_unhealthy' as const, models: [], message: 'Clerk engine is not ready.' };
     }
-    return probeBackend(client, governorDir, configIO);
+    return probeBackend(backend, governorDir, configIO);
   });
 
   ipcMain.handle(Channels.BACKEND_CONFIGURE, async (_event, config: unknown): Promise<BackendConfigureResult> => {
-    if (!client || !governorDir || !configIO) {
+    if (!backend || !governorDir || !configIO) {
       return { ok: false, error: { code: 'DAEMON_NOT_READY', message: 'Clerk engine is not ready.' } };
     }
 
@@ -463,9 +465,9 @@ export function registerIpcHandlers(
       return { ok: false, error: { code: 'WRITE_FAILED', message: sanitizeError(err) } };
     }
 
-    // 3. Restart daemon
+    // 3. Restart backend
     try {
-      client.restart();
+      backend.restart();
     } catch (err) {
       return { ok: false, error: { code: 'RESTART_FAILED', message: sanitizeError(err) } };
     }
@@ -475,17 +477,17 @@ export function registerIpcHandlers(
     for (let i = 0; i < 10; i++) {
       await new Promise(r => setTimeout(r, 500));
       try {
-        const h = await client.health();
+        const h = await backend.health();
         if (h.status === 'ok') { healthOk = true; break; }
       } catch { /* keep polling */ }
     }
 
     if (!healthOk) {
-      return { ok: false, error: { code: 'RESTART_FAILED', message: 'Daemon did not become healthy after restart.' } };
+      return { ok: false, error: { code: 'RESTART_FAILED', message: 'Backend did not become healthy after restart.' } };
     }
 
     // 5. Probe backend
-    const status = await probeBackend(client, governorDir, configIO);
+    const status = await probeBackend(backend, governorDir, configIO);
     if (status.state !== 'ready') {
       const code = status.state === 'unreachable' ? 'BACKEND_UNREACHABLE'
         : cfg.type === 'anthropic' ? 'AUTH_FAILED'

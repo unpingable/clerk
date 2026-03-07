@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Health polling with reconnect logic.
- * Periodically pings the Governor daemon and emits connection state changes.
+ * Periodically pings the backend and emits connection state changes.
  */
 
 import { BrowserWindow } from 'electron';
 import { Channels } from '../shared/channels.js';
-import { GovernorClient } from './rpc-client.js';
+import type { ClerkBackend } from './backend.js';
 
 export type ConnectionState = 'connected' | 'degraded' | 'disconnected';
 
 export class ConnectionMonitor {
-  private client: GovernorClient;
+  private backend: ClerkBackend;
   private interval: ReturnType<typeof setInterval> | null = null;
   private state: ConnectionState = 'disconnected';
   private pollMs: number;
 
-  constructor(client: GovernorClient, pollMs: number = 3000) {
-    this.client = client;
+  constructor(backend: ClerkBackend, pollMs: number = 3000) {
+    this.backend = backend;
     this.pollMs = pollMs;
   }
 
@@ -41,7 +41,7 @@ export class ConnectionMonitor {
   private async poll(): Promise<void> {
     let newState: ConnectionState;
     try {
-      const health = await this.client.health();
+      const health = await this.backend.health();
       newState = health.status === 'ok' ? 'connected' : 'degraded';
     } catch {
       newState = 'disconnected';

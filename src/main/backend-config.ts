@@ -169,7 +169,7 @@ export function writeDaemonConf(governorDir: string, config: BackendConfig, io: 
 
 export interface ProbeClient {
   health(): Promise<{ status: string }>;
-  chatModels(): Promise<ModelInfo[]>;
+  listModels(): Promise<ModelInfo[]>;
 }
 
 /**
@@ -211,7 +211,7 @@ export async function probeBackend(
   // Daemon healthy — check models
   let models: ModelInfo[] = [];
   try {
-    models = await client.chatModels();
+    models = await client.listModels();
   } catch {
     models = [];
   }

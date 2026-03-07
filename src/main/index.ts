@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import { GovernorClient } from './rpc-client.js';
+import { GovernorBackend } from './governor-backend.js';
 import { ConnectionMonitor } from './connection.js';
 import { registerIpcHandlers } from './ipc-handlers.js';
 import { resolveGovernorDaemon } from './daemon-resolver.js';
@@ -44,7 +45,7 @@ if (isE2E) {
 // --- Resolve daemon binary ---
 
 let resolveResult: DaemonResolveResult;
-let client: GovernorClient | null = null;
+let backend: GovernorBackend | null = null;
 let monitor: ConnectionMonitor | null = null;
 let templateManager: TemplateManager | null = null;
 let fileManager: FileManager | null = null;
@@ -132,22 +133,24 @@ app.whenReady().then(() => {
 
   if (resolveResult.ok) {
     console.error(`[clerk] daemon resolved: ${resolveResult.path} (${resolveResult.version}) via ${resolveResult.source}`);
-    client = new GovernorClient(resolveResult.path, governorDir, governorMode);
-    monitor = new ConnectionMonitor(client);
-    client.start();
+    const client = new GovernorClient(resolveResult.path, governorDir, governorMode);
+    backend = new GovernorBackend(client);
+    monitor = new ConnectionMonitor(backend);
+    backend.start();
 
     // Activity feed — create before TemplateManager/FileManager so they can record events
     const activityLog = new ActivityLog(governorDir, activityLogIO);
     activityManager = new ActivityManager(activityLog, () => templateManager!.getAppliedModeInfo());
 
-    templateManager = new TemplateManager(client, governorDir, undefined, activityManager);
+    // GovernorBackend satisfies TemplateManagerClient and FileManagerClient
+    templateManager = new TemplateManager(backend, governorDir, undefined, activityManager);
     templateManager.loadPersistedSelection();
     activityManager.init().catch((err) => {
       console.error('[clerk] activity log init error:', err);
     });
 
     fileManager = new FileManager(
-      client,
+      backend,
       governorDir,
       () => {
         const state = templateManager!.getState();
@@ -159,8 +162,9 @@ app.whenReady().then(() => {
     );
     const win = createWindow();
     askGateState = makeAskGate(() => BrowserWindow.getAllWindows()[0]);
-    toolLoop = new ToolLoop(client, fileManager, askGateState.gate, activityManager);
-    registerIpcHandlers(client, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState, settingsManager, conversationManager, governorDir, backendConfigIO);
+    // GovernorBackend satisfies ToolLoopClient
+    toolLoop = new ToolLoop(backend, fileManager, askGateState.gate, activityManager);
+    registerIpcHandlers(backend, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState, settingsManager, conversationManager, governorDir, backendConfigIO);
     activityManager.attachBroadcast(win.webContents);
     monitor.start();
 
@@ -185,7 +189,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   monitor?.stop();
-  client?.stop();
+  backend?.stop();
   if (process.platform !== 'darwin') app.quit();
 });
 

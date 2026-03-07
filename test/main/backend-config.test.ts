@@ -190,7 +190,7 @@ describe('probeBackend', () => {
   it('returns daemon_unhealthy when no config and unhealthy', async () => {
     const client = {
       health: vi.fn().mockRejectedValue(new Error('down')),
-      chatModels: vi.fn(),
+      listModels: vi.fn(),
     };
     const io = makeIO();
     const status = await probeBackend(client, '/gov', io);
@@ -200,7 +200,7 @@ describe('probeBackend', () => {
   it('returns missing when no config, healthy, no models', async () => {
     const client = {
       health: vi.fn().mockResolvedValue({ status: 'ok' }),
-      chatModels: vi.fn().mockResolvedValue([]),
+      listModels: vi.fn().mockResolvedValue([]),
     };
     const io = makeIO();
     const status = await probeBackend(client, '/gov', io);
@@ -210,7 +210,7 @@ describe('probeBackend', () => {
   it('returns unreachable when config exists but unhealthy', async () => {
     const client = {
       health: vi.fn().mockRejectedValue(new Error('down')),
-      chatModels: vi.fn(),
+      listModels: vi.fn(),
     };
     const io = makeIO({
       '/gov/daemon.conf': '[backend]\ntype = anthropic\nanthropic.api_key = sk-test\n',
@@ -225,7 +225,7 @@ describe('probeBackend', () => {
   it('returns no_models when config, healthy, empty models', async () => {
     const client = {
       health: vi.fn().mockResolvedValue({ status: 'ok' }),
-      chatModels: vi.fn().mockResolvedValue([]),
+      listModels: vi.fn().mockResolvedValue([]),
     };
     const io = makeIO({
       '/gov/daemon.conf': '[backend]\ntype = ollama\n',
@@ -238,7 +238,7 @@ describe('probeBackend', () => {
   it('returns ready when config, healthy, models present', async () => {
     const client = {
       health: vi.fn().mockResolvedValue({ status: 'ok' }),
-      chatModels: vi.fn().mockResolvedValue([{ id: 'm1', name: 'Model 1', backend: 'anthropic' }]),
+      listModels: vi.fn().mockResolvedValue([{ id: 'm1', name: 'Model 1', backend: 'anthropic' }]),
     };
     const io = makeIO({
       '/gov/daemon.conf': '[backend]\ntype = anthropic\nanthropic.api_key = sk-test\n',
@@ -251,7 +251,7 @@ describe('probeBackend', () => {
   it('returns ready when no config but models are available (auto-detect)', async () => {
     const client = {
       health: vi.fn().mockResolvedValue({ status: 'ok' }),
-      chatModels: vi.fn().mockResolvedValue([{ id: 'm1', name: 'Model 1', backend: 'anthropic' }]),
+      listModels: vi.fn().mockResolvedValue([{ id: 'm1', name: 'Model 1', backend: 'anthropic' }]),
     };
     const io = makeIO();
     const status = await probeBackend(client, '/gov', io);
