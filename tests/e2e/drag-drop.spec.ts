@@ -7,67 +7,32 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { _electron as electron } from 'playwright';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = path.resolve(__dirname, '..', '..');
-const STUB_DAEMON = path.resolve(__dirname, 'stub-daemon.mjs');
-const MAIN_ENTRY = path.resolve(ROOT, 'dist', 'main', 'index.js');
-
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-drop-'));
-}
-
-async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
-  const { createRequire } = await import('node:module');
-  const require = createRequire(import.meta.url);
-  const electronPath = require('electron') as unknown as string;
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: ['--no-sandbox', MAIN_ENTRY],
-    env: {
-      ...process.env,
-      CLERK_E2E: '1',
-      GOVERNOR_BIN: STUB_DAEMON,
-      GOVERNOR_DIR: governorDir,
-      GOVERNOR_MODE: 'general',
-      ELECTRON_DISABLE_GPU: '1',
-      ELECTRON_DISABLE_SANDBOX: '1',
-      ...extraEnv,
-    },
-  });
-  const page = await app.firstWindow();
-  await page.waitForSelector('textarea', { timeout: 15000 });
-  return { app, page };
-}
+import { launchApp, makeTmpDirs, cleanupDirs } from './e2e-helpers';
 
 test.describe('File attachment IPC', () => {
-  let tmpDir: string;
+  let govDir: string;
+  let userDataDir: string;
   let app: Awaited<ReturnType<typeof launchApp>>['app'];
   let page: Awaited<ReturnType<typeof launchApp>>['page'];
 
   test.beforeAll(async () => {
-    tmpDir = makeTmpDir();
-    // Write daemon.conf so backend probe succeeds
-    fs.writeFileSync(path.join(tmpDir, 'daemon.conf'), 'type = anthropic\nanthropic.api_key = sk-ant-test-key\n');
-    const launched = await launchApp(tmpDir);
+    const dirs = makeTmpDirs('clerk-e2e-drop-');
+    govDir = dirs.govDir;
+    userDataDir = dirs.userDataDir;
+    const launched = await launchApp(govDir, userDataDir);
     app = launched.app;
     page = launched.page;
   });
 
   test.afterAll(async () => {
     await app?.close();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    cleanupDirs(govDir, userDataDir);
   });
 
   test('readAbsoluteFile on a valid UTF-8 file returns ok', async () => {
-    const filePath = path.join(tmpDir, 'hello.txt');
+    const filePath = path.join(govDir, 'hello.txt');
     fs.writeFileSync(filePath, 'Hello, world!\n');
 
     const result = await page.evaluate(async (fp: string) => {
@@ -83,7 +48,7 @@ test.describe('File attachment IPC', () => {
   });
 
   test('readAbsoluteFile rejects binary file', async () => {
-    const filePath = path.join(tmpDir, 'binary.bin');
+    const filePath = path.join(govDir, 'binary.bin');
     fs.writeFileSync(filePath, Buffer.from([0x48, 0x65, 0x00, 0x6c]));
 
     const result = await page.evaluate(async (fp: string) => {
@@ -97,7 +62,7 @@ test.describe('File attachment IPC', () => {
   });
 
   test('readAbsoluteFile rejects oversized file', async () => {
-    const filePath = path.join(tmpDir, 'huge.txt');
+    const filePath = path.join(govDir, 'huge.txt');
     // Create a file > 2MB
     fs.writeFileSync(filePath, 'x'.repeat(2.5 * 1024 * 1024));
 
@@ -114,7 +79,7 @@ test.describe('File attachment IPC', () => {
   test('readAbsoluteFile rejects directory', async () => {
     const result = await page.evaluate(async (fp: string) => {
       return window.clerk.readAbsoluteFile(fp);
-    }, tmpDir);
+    }, govDir);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -124,28 +89,30 @@ test.describe('File attachment IPC', () => {
 });
 
 test.describe('Renderer attachment behavior', () => {
-  let tmpDir: string;
+  let govDir: string;
+  let userDataDir: string;
   let app: Awaited<ReturnType<typeof launchApp>>['app'];
   let page: Awaited<ReturnType<typeof launchApp>>['page'];
 
   test.beforeAll(async () => {
-    tmpDir = makeTmpDir();
-    fs.writeFileSync(path.join(tmpDir, 'daemon.conf'), 'type = anthropic\nanthropic.api_key = sk-ant-test-key\n');
+    const dirs = makeTmpDirs('clerk-e2e-drop2-');
+    govDir = dirs.govDir;
+    userDataDir = dirs.userDataDir;
     // Create test files
-    fs.writeFileSync(path.join(tmpDir, 'notes.txt'), 'Some notes here');
-    fs.writeFileSync(path.join(tmpDir, 'data.csv'), 'a,b\n1,2\n3,4');
-    const launched = await launchApp(tmpDir);
+    fs.writeFileSync(path.join(govDir, 'notes.txt'), 'Some notes here');
+    fs.writeFileSync(path.join(govDir, 'data.csv'), 'a,b\n1,2\n3,4');
+    const launched = await launchApp(govDir, userDataDir);
     app = launched.app;
     page = launched.page;
   });
 
   test.afterAll(async () => {
     await app?.close();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    cleanupDirs(govDir, userDataDir);
   });
 
   test('programmatic attachFile → chip renders with name', async () => {
-    const filePath = path.join(tmpDir, 'notes.txt');
+    const filePath = path.join(govDir, 'notes.txt');
 
     // Call attachFile via the chat store
     await page.evaluate(async (fp: string) => {
@@ -161,7 +128,7 @@ test.describe('Renderer attachment behavior', () => {
 
   test('attachment summary shows file count and total size', async () => {
     // This tests the pure formatting functions indirectly via the IPC
-    const filePath = path.join(tmpDir, 'data.csv');
+    const filePath = path.join(govDir, 'data.csv');
     const result = await page.evaluate(async (fp: string) => {
       return window.clerk.readAbsoluteFile(fp);
     }, filePath);

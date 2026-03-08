@@ -7,62 +7,33 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { _electron as electron } from 'playwright';
-import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = path.resolve(__dirname, '..', '..');
-const STUB_DAEMON = path.resolve(__dirname, 'stub-daemon.mjs');
-const MAIN_ENTRY = path.resolve(ROOT, 'dist', 'main', 'index.js');
-
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-wizard-'));
-}
+import path from 'node:path';
+import { launchApp, makeTmpDirs, cleanupDirs } from './e2e-helpers';
 
 const isMac = process.platform === 'darwin';
 const mod = isMac ? 'Meta' : 'Control';
 
-async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
-  const { createRequire } = await import('node:module');
-  const require = createRequire(import.meta.url);
-  const electronPath = require('electron') as unknown as string;
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: ['--no-sandbox', MAIN_ENTRY],
-    env: {
-      ...process.env,
-      CLERK_E2E: '1',
-      GOVERNOR_BIN: STUB_DAEMON,
-      GOVERNOR_DIR: governorDir,
-      GOVERNOR_MODE: 'general',
-      ELECTRON_DISABLE_GPU: '1',
-      ELECTRON_DISABLE_SANDBOX: '1',
-      ...extraEnv,
-    },
-  });
-  const page = await app.firstWindow();
-  return { app, page };
-}
-
 test.describe('Setup Wizard', () => {
   let governorDir: string;
+  let userDataDir: string;
 
   test.beforeEach(() => {
-    governorDir = makeTmpDir();
+    const dirs = makeTmpDirs('clerk-e2e-wizard-');
+    governorDir = dirs.govDir;
+    userDataDir = dirs.userDataDir;
   });
 
   test.afterEach(() => {
-    fs.rmSync(governorDir, { recursive: true, force: true });
+    cleanupDirs(governorDir, userDataDir);
   });
 
   test('wizard appears when no daemon.conf, configure anthropic succeeds', async () => {
     // No daemon.conf → stub returns empty models → wizard should appear
-    const { app, page } = await launchApp(governorDir, { E2E_BACKEND_CHECK: '1' });
+    const { app, page } = await launchApp(governorDir, userDataDir, {
+      writeDaemonConf: false,
+      waitForTextarea: false,
+    });
     try {
       // Wizard should appear (look for the Connect button)
       const connectBtn = page.locator('[data-wizard-connect]');
@@ -96,7 +67,10 @@ test.describe('Setup Wizard', () => {
   });
 
   test('wizard shows error for bad API key', async () => {
-    const { app, page } = await launchApp(governorDir, { E2E_BACKEND_CHECK: '1' });
+    const { app, page } = await launchApp(governorDir, userDataDir, {
+      writeDaemonConf: false,
+      waitForTextarea: false,
+    });
     try {
       const connectBtn = page.locator('[data-wizard-connect]');
       await expect(connectBtn).toBeVisible({ timeout: 15000 });
@@ -115,13 +89,8 @@ test.describe('Setup Wizard', () => {
   });
 
   test('"Change AI backend..." from command palette re-shows wizard', async () => {
-    // Start with a valid config so chat UI loads
-    fs.writeFileSync(
-      path.join(governorDir, 'daemon.conf'),
-      '[backend]\ntype = anthropic\nanthropic.api_key = sk-ant-valid\n'
-    );
-
-    const { app, page } = await launchApp(governorDir);
+    // Start with a valid config so chat UI loads (shared helper writes daemon.conf)
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       // Wait for chat UI
       await expect(page.locator('textarea')).toBeVisible({ timeout: 15000 });

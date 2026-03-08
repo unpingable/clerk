@@ -12,45 +12,9 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { _electron as electron } from 'playwright';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = path.resolve(__dirname, '..', '..');
-const STUB_DAEMON = path.resolve(__dirname, 'stub-daemon.mjs');
-const MAIN_ENTRY = path.resolve(ROOT, 'dist', 'main', 'index.js');
-
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-'));
-}
-
-async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
-  const { createRequire } = await import('node:module');
-  const require = createRequire(import.meta.url);
-  const electronPath = require('electron') as unknown as string;
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: ['--no-sandbox', MAIN_ENTRY],
-    env: {
-      ...process.env,
-      CLERK_E2E: '1',
-      GOVERNOR_BIN: STUB_DAEMON,
-      GOVERNOR_DIR: governorDir,
-      GOVERNOR_MODE: 'general',
-      ELECTRON_DISABLE_GPU: '1',
-      ELECTRON_DISABLE_SANDBOX: '1',
-      ...extraEnv,
-    },
-  });
-  const page = await app.firstWindow();
-  await page.waitForSelector('textarea', { timeout: 15000 });
-  return { app, page };
-}
+import { launchApp, makeTmpDirs, cleanupDirs } from './e2e-helpers';
 
 /** Open the details drawer by clicking the toggle button. */
 async function openDetailsDrawer(page: Awaited<ReturnType<typeof launchApp>>['page']) {
@@ -74,17 +38,20 @@ async function countFeedEvents(page: Awaited<ReturnType<typeof launchApp>>['page
 
 test.describe('Activity Feed', () => {
   let governorDir: string;
+  let userDataDir: string;
 
   test.beforeEach(() => {
-    governorDir = makeTmpDir();
+    const dirs = makeTmpDirs('clerk-e2e-feed-');
+    governorDir = dirs.govDir;
+    userDataDir = dirs.userDataDir;
   });
 
   test.afterEach(() => {
-    fs.rmSync(governorDir, { recursive: true, force: true });
+    cleanupDirs(governorDir, userDataDir);
   });
 
   test('details panel is closed by default', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       // workspace-details should NOT be in the DOM when closed
       await expect(page.locator('.workspace-details')).toHaveCount(0);
@@ -96,7 +63,7 @@ test.describe('Activity Feed', () => {
   });
 
   test('strict profile: write blocked appears in feed', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
 
     try {
       // Open the details drawer first
@@ -138,7 +105,7 @@ test.describe('Activity Feed', () => {
   });
 
   test('production profile: write allowed appears in feed + file exists', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
 
     try {
       // Open the details drawer first
@@ -181,7 +148,7 @@ test.describe('Activity Feed', () => {
 
   test('compile failure: selected != applied + mode-change failure in feed', async () => {
     // Stub fails on the 2nd intent.compile (1st is the startup apply)
-    const { app, page } = await launchApp(governorDir, { E2E_COMPILE_FAIL_ON: '2' });
+    const { app, page } = await launchApp(governorDir, userDataDir, { extraEnv: { E2E_COMPILE_FAIL_ON: '2' } });
 
     try {
       // Open the details drawer first

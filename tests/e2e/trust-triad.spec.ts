@@ -12,69 +12,36 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { _electron as electron } from 'playwright';
-import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = path.resolve(__dirname, '..', '..');
-const STUB_DAEMON = path.resolve(__dirname, 'stub-daemon.mjs');
-const MAIN_ENTRY = path.resolve(ROOT, 'dist', 'main', 'index.js');
-
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-trust-'));
-}
+import path from 'node:path';
+import { launchApp, makeTmpDirs, cleanupDirs } from './e2e-helpers';
 
 /** Open the details drawer by clicking the toggle button. */
-async function openDetailsDrawer(page: Awaited<ReturnType<typeof launchApp>>['page']) {
+async function openDetailsDrawer(page: any) {
   await page.locator('.details-toggle').click();
   await expect(page.locator('.workspace-details')).toBeVisible({ timeout: 3000 });
 }
 
-async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
-  const { createRequire } = await import('node:module');
-  const require = createRequire(import.meta.url);
-  const electronPath = require('electron') as unknown as string;
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: ['--no-sandbox', MAIN_ENTRY],
-    env: {
-      ...process.env,
-      CLERK_E2E: '1',
-      GOVERNOR_BIN: STUB_DAEMON,
-      GOVERNOR_DIR: governorDir,
-      GOVERNOR_MODE: 'general',
-      ELECTRON_DISABLE_GPU: '1',
-      ELECTRON_DISABLE_SANDBOX: '1',
-      ...extraEnv,
-    },
-  });
-  const page = await app.firstWindow();
-  await page.waitForSelector('textarea', { timeout: 15000 });
-  return { app, page };
-}
-
 test.describe('Trust Triad', () => {
   let governorDir: string;
+  let userDataDir: string;
 
   test.beforeEach(() => {
-    governorDir = makeTmpDir();
+    const dirs = makeTmpDirs('clerk-e2e-trust-');
+    governorDir = dirs.govDir;
+    userDataDir = dirs.userDataDir;
   });
 
   test.afterEach(() => {
-    fs.rmSync(governorDir, { recursive: true, force: true });
+    cleanupDirs(governorDir, userDataDir);
   });
 
   test('ask allow: overwrite approved → file updated, single upserted row', async () => {
     // Seed target file
     fs.writeFileSync(path.join(governorDir, 'target.txt'), 'original content', 'utf-8');
 
-    const { app, page } = await launchApp(governorDir, {
-      E2E_CHAT_SCENARIO: 'ask_overwrite',
+    const { app, page } = await launchApp(governorDir, userDataDir, {
+      extraEnv: { E2E_CHAT_SCENARIO: 'ask_overwrite' },
     });
 
     try {
@@ -126,8 +93,8 @@ test.describe('Trust Triad', () => {
     // Seed target file
     fs.writeFileSync(path.join(governorDir, 'target.txt'), 'original content', 'utf-8');
 
-    const { app, page } = await launchApp(governorDir, {
-      E2E_CHAT_SCENARIO: 'ask_overwrite',
+    const { app, page } = await launchApp(governorDir, userDataDir, {
+      extraEnv: { E2E_CHAT_SCENARIO: 'ask_overwrite' },
     });
 
     try {
@@ -170,8 +137,8 @@ test.describe('Trust Triad', () => {
   });
 
   test('stop mid-loop: no overwrite, "Stopped by user" system event', async () => {
-    const { app, page } = await launchApp(governorDir, {
-      E2E_CHAT_SCENARIO: 'stop_loop',
+    const { app, page } = await launchApp(governorDir, userDataDir, {
+      extraEnv: { E2E_CHAT_SCENARIO: 'stop_loop' },
     });
 
     try {
@@ -216,8 +183,8 @@ test.describe('Trust Triad', () => {
     // Seed target file with known content
     fs.writeFileSync(path.join(governorDir, 'target.txt'), 'real content', 'utf-8');
 
-    const { app, page } = await launchApp(governorDir, {
-      E2E_CHAT_SCENARIO: 'hash_mismatch',
+    const { app, page } = await launchApp(governorDir, userDataDir, {
+      extraEnv: { E2E_CHAT_SCENARIO: 'hash_mismatch' },
     });
 
     try {

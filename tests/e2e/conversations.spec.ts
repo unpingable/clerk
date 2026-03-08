@@ -12,51 +12,10 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { _electron as electron } from 'playwright';
-import path from 'node:path';
-import fs from 'node:fs';
-import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = path.resolve(__dirname, '..', '..');
-const STUB_DAEMON = path.resolve(__dirname, 'stub-daemon.mjs');
-const MAIN_ENTRY = path.resolve(ROOT, 'dist', 'main', 'index.js');
-
-function makeTmpDir(prefix = 'clerk-e2e-conv-'): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
+import { launchApp as _launchApp, makeTmpDirs, cleanupDirs } from './e2e-helpers';
 
 async function launchApp(govDir: string, userDataDir: string, extraEnv: Record<string, string> = {}) {
-  const { createRequire } = await import('node:module');
-  const require = createRequire(import.meta.url);
-  const electronPath = require('electron') as unknown as string;
-
-  fs.writeFileSync(
-    path.join(govDir, 'daemon.conf'),
-    '[backend]\ntype = anthropic\nanthropic.api_key = sk-test\n',
-  );
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: ['--no-sandbox', MAIN_ENTRY],
-    env: {
-      ...process.env,
-      CLERK_E2E: '1',
-      GOVERNOR_BIN: STUB_DAEMON,
-      GOVERNOR_DIR: govDir,
-      GOVERNOR_MODE: 'general',
-      ELECTRON_DISABLE_GPU: '1',
-      ELECTRON_DISABLE_SANDBOX: '1',
-      E2E_BACKEND_CHECK: '1',
-      CLERK_USER_DATA: userDataDir,
-      ...extraEnv,
-    },
-  });
-
-  const win = await app.firstWindow();
-  await win.waitForSelector('textarea', { timeout: 15000 });
+  const { app, page: win } = await _launchApp(govDir, userDataDir, { extraEnv });
   return { app, win };
 }
 
@@ -76,13 +35,13 @@ test.describe('Conversations', () => {
   let userDataDir: string;
 
   test.beforeEach(() => {
-    govDir = makeTmpDir('clerk-e2e-conv-gov-');
-    userDataDir = makeTmpDir('clerk-e2e-conv-data-');
+    const dirs = makeTmpDirs('clerk-e2e-conv-');
+    govDir = dirs.govDir;
+    userDataDir = dirs.userDataDir;
   });
 
   test.afterEach(() => {
-    fs.rmSync(govDir, { recursive: true, force: true });
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    cleanupDirs(govDir, userDataDir);
   });
 
   test('create second conversation shows sidebar, messages isolated', async () => {

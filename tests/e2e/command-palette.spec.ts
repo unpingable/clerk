@@ -15,48 +15,10 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { _electron as electron } from 'playwright';
-import path from 'node:path';
-import fs from 'node:fs';
-import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = path.resolve(__dirname, '..', '..');
-const STUB_DAEMON = path.resolve(__dirname, 'stub-daemon.mjs');
-const MAIN_ENTRY = path.resolve(ROOT, 'dist', 'main', 'index.js');
-
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'clerk-e2e-palette-'));
-}
+import { launchApp, makeTmpDirs, cleanupDirs } from './e2e-helpers';
 
 const isMac = process.platform === 'darwin';
 const mod = isMac ? 'Meta' : 'Control';
-
-async function launchApp(governorDir: string, extraEnv: Record<string, string> = {}) {
-  const { createRequire } = await import('node:module');
-  const require = createRequire(import.meta.url);
-  const electronPath = require('electron') as unknown as string;
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: ['--no-sandbox', MAIN_ENTRY],
-    env: {
-      ...process.env,
-      CLERK_E2E: '1',
-      GOVERNOR_BIN: STUB_DAEMON,
-      GOVERNOR_DIR: governorDir,
-      GOVERNOR_MODE: 'general',
-      ELECTRON_DISABLE_GPU: '1',
-      ELECTRON_DISABLE_SANDBOX: '1',
-      ...extraEnv,
-    },
-  });
-  const page = await app.firstWindow();
-  await page.waitForSelector('textarea', { timeout: 15000 });
-  return { app, page };
-}
 
 async function openPalette(page: Awaited<ReturnType<typeof launchApp>>['page']) {
   await page.keyboard.press(`${mod}+p`);
@@ -65,17 +27,20 @@ async function openPalette(page: Awaited<ReturnType<typeof launchApp>>['page']) 
 
 test.describe('Command Palette', () => {
   let governorDir: string;
+  let userDataDir: string;
 
   test.beforeEach(() => {
-    governorDir = makeTmpDir();
+    const dirs = makeTmpDirs('clerk-e2e-palette-');
+    governorDir = dirs.govDir;
+    userDataDir = dirs.userDataDir;
   });
 
   test.afterEach(() => {
-    fs.rmSync(governorDir, { recursive: true, force: true });
+    cleanupDirs(governorDir, userDataDir);
   });
 
   test('Cmd/Ctrl+P opens palette, Escape closes', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       // Palette should not be visible initially
       await expect(page.locator('.backdrop')).toBeHidden();
@@ -102,7 +67,7 @@ test.describe('Command Palette', () => {
   });
 
   test('backdrop click closes palette', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       await openPalette(page);
 
@@ -115,7 +80,7 @@ test.describe('Command Palette', () => {
   });
 
   test('filter narrows results, empty state shows hint', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       await openPalette(page);
 
@@ -144,7 +109,7 @@ test.describe('Command Palette', () => {
   });
 
   test('arrow keys navigate, selected item has highlight', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       await openPalette(page);
 
@@ -167,7 +132,7 @@ test.describe('Command Palette', () => {
   });
 
   test('prefill command lands text in chat input with cursor at end', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       await openPalette(page);
 
@@ -197,7 +162,7 @@ test.describe('Command Palette', () => {
   });
 
   test('profile command triggers template change', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       // Wait for template picker to confirm default
       const picker = page.locator('.status-bar select.picker');
@@ -229,7 +194,7 @@ test.describe('Command Palette', () => {
   });
 
   test('activity filter command changes feed filter', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       // Open palette and select "Show blocked"
       await openPalette(page);
@@ -252,8 +217,8 @@ test.describe('Command Palette', () => {
   });
 
   test('stop command appears only while streaming', async () => {
-    const { app, page } = await launchApp(governorDir, {
-      E2E_CHAT_SCENARIO: 'stop_loop',
+    const { app, page } = await launchApp(governorDir, userDataDir, {
+      extraEnv: { E2E_CHAT_SCENARIO: 'stop_loop' },
     });
     try {
       // Open palette — stop should NOT be present
@@ -286,7 +251,7 @@ test.describe('Command Palette', () => {
   });
 
   test('mouse hover updates selection', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       await openPalette(page);
 
@@ -303,7 +268,7 @@ test.describe('Command Palette', () => {
   });
 
   test('Cmd/Ctrl+K still focuses input when palette is closed', async () => {
-    const { app, page } = await launchApp(governorDir);
+    const { app, page } = await launchApp(governorDir, userDataDir);
     try {
       // Click somewhere to blur the textarea
       await page.locator('.header').click();
