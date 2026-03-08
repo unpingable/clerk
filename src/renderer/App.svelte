@@ -15,6 +15,7 @@
   import * as chat from './stores/chat.svelte';
   import * as tmpl from './stores/template.svelte';
   import * as activity from './stores/activity.svelte';
+  import * as caps from './stores/capabilities.svelte';
   import { loadSettings } from './stores/settings.svelte';
   import { api } from '$lib/api';
   import type { DaemonStatus, DaemonStatusErr, BackendStatus } from '$shared/types';
@@ -109,6 +110,7 @@
   }
 
   async function loadBackendReadyState() {
+    caps.loadCapabilities();
     chat.loadModels();
     tmpl.initialize();
     activity.loadEvents();
@@ -226,8 +228,10 @@
   </main>
   {#if daemonOk && !backendNeeded && !loading}
     <div class="status-bar">
-      <TemplatePicker />
-      <span class="status-sep">&middot;</span>
+      {#if caps.getCapabilities().templateCompilation}
+        <TemplatePicker />
+        <span class="status-sep">&middot;</span>
+      {/if}
       <ConnectionBadge />
       {#if blockedCount > 0}
         <span class="status-sep">&middot;</span>

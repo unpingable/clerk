@@ -436,7 +436,19 @@ export function registerIpcHandlers(
     return fileManager.fileGrep(query, bp);
   });
 
-  // --- Backend Config ---
+  // --- Backend Capabilities + Config ---
+
+  ipcMain.handle(Channels.BACKEND_CAPABILITIES, async () => {
+    if (!backend) {
+      // No backend — return all-false capabilities
+      return {
+        chat: false, textGating: false, actionGating: false,
+        templateCompilation: false, receipts: false,
+        violations: false, governorState: false,
+      };
+    }
+    return backend.getCapabilities();
+  });
 
   ipcMain.handle(Channels.BACKEND_STATUS, async () => {
     if (!backend || !governorDir || !configIO) {

@@ -38,6 +38,7 @@ export interface CommandContext {
   templates: Array<{ id: string; name: string }>;
   conversationCount: number;
   sidebarVisible: boolean;
+  hasTemplateCompilation: boolean;
 }
 
 const TEMPLATE_KEYWORDS: Record<string, string[]> = {
@@ -137,17 +138,19 @@ export function buildCommands(ctx: CommandContext): Command[] {
     action: { type: 'ui', actionId: 'toggle-details' },
   });
 
-  // --- Profile ---
-  for (const t of ctx.templates) {
-    if (t.id === ctx.appliedTemplateId) continue;
-    const extra = TEMPLATE_KEYWORDS[t.id] ?? [];
-    commands.push({
-      id: `profile-${t.id}`,
-      label: `Use profile: ${t.name}`,
-      group: 'Profile',
-      keywords: ['profile', 'trust', 'mode', ...extra],
-      action: { type: 'ui', actionId: `request-template:${t.id}` },
-    });
+  // --- Profile (only when backend supports template compilation) ---
+  if (ctx.hasTemplateCompilation) {
+    for (const t of ctx.templates) {
+      if (t.id === ctx.appliedTemplateId) continue;
+      const extra = TEMPLATE_KEYWORDS[t.id] ?? [];
+      commands.push({
+        id: `profile-${t.id}`,
+        label: `Use profile: ${t.name}`,
+        group: 'Profile',
+        keywords: ['profile', 'trust', 'mode', ...extra],
+        action: { type: 'ui', actionId: `request-template:${t.id}` },
+      });
+    }
   }
 
   // --- Activity ---

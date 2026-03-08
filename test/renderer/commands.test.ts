@@ -17,6 +17,9 @@ function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
       { id: 'take_the_wheel', name: 'Take the wheel' },
       { id: 'unrestricted', name: 'Unrestricted' },
     ],
+    conversationCount: 0,
+    sidebarVisible: false,
+    hasTemplateCompilation: true,
     ...overrides,
   };
 }
@@ -119,6 +122,18 @@ describe('buildCommands', () => {
     const cmds = buildCommands(makeCtx({ streaming: true }));
     const cmd = cmds.find(c => c.id === 'change-backend');
     expect(cmd).toBeUndefined();
+  });
+
+  it('excludes profile commands when hasTemplateCompilation is false', () => {
+    const cmds = buildCommands(makeCtx({ hasTemplateCompilation: false }));
+    const profileCmds = cmds.filter(c => c.group === 'Profile');
+    expect(profileCmds).toHaveLength(0);
+  });
+
+  it('includes profile commands when hasTemplateCompilation is true', () => {
+    const cmds = buildCommands(makeCtx({ hasTemplateCompilation: true }));
+    const profileCmds = cmds.filter(c => c.group === 'Profile');
+    expect(profileCmds.length).toBeGreaterThan(0);
   });
 });
 

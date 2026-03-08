@@ -7,6 +7,7 @@
   import * as chat from '../stores/chat.svelte';
   import * as tmpl from '../stores/template.svelte';
   import * as activity from '../stores/activity.svelte';
+  import * as caps from '../stores/capabilities.svelte';
   import { settings, setFriendlyMode, setTheme } from '../stores/settings.svelte';
   import type { ActivityFilter } from '$shared/types';
 
@@ -35,6 +36,7 @@
     templates: tmpl.getTemplates().map(t => ({ id: t.id, name: t.name })),
     conversationCount,
     sidebarVisible,
+    hasTemplateCompilation: caps.getCapabilities().templateCompilation,
   });
 
   const commands = $derived(buildCommands(ctx));

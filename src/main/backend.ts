@@ -14,6 +14,7 @@
 import type {
   HealthResponse,
   ModelInfo,
+  BackendCapabilities,
   GateReceipt,
   ReceiptDetail,
   PendingViolation,
@@ -24,24 +25,7 @@ import type {
   IntentCompileResult,
 } from '../shared/types.js';
 
-// --- Capability reporting ---
-
-export interface BackendCapabilities {
-  /** Can stream chat to an LLM */
-  chat: boolean;
-  /** Can gate text output (claims, anchors, receipts) */
-  textGating: boolean;
-  /** Can gate actions (scope checks for file/tool operations) */
-  actionGating: boolean;
-  /** Can compile constraint templates via daemon intent API */
-  templateCompilation: boolean;
-  /** Maintains a receipt history that can be queried */
-  receipts: boolean;
-  /** Supports interactive violation resolution (commit/waive) */
-  violations: boolean;
-  /** Exposes governor runtime state (now/status) */
-  governorState: boolean;
-}
+export type { BackendCapabilities };
 
 // --- Scope check types ---
 

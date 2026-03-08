@@ -104,7 +104,8 @@ const api: ClerkAPI = {
     ipcRenderer.removeAllListeners(Channels.CHAT_FILE_ACTION);
   },
 
-  // Backend config
+  // Backend capabilities + config
+  backendCapabilities: () => ipcRenderer.invoke(Channels.BACKEND_CAPABILITIES),
   backendStatus: () => ipcRenderer.invoke(Channels.BACKEND_STATUS),
   backendConfigure: (config) => ipcRenderer.invoke(Channels.BACKEND_CONFIGURE, config),
 

@@ -535,6 +535,25 @@ export type ConversationSaveResult =
   | { ok: true; meta: ConversationMeta }
   | { ok: false; error: string };
 
+// --- Backend capabilities ---
+
+export interface BackendCapabilities {
+  /** Can stream chat to an LLM */
+  chat: boolean;
+  /** Can gate text output (claims, anchors, receipts) */
+  textGating: boolean;
+  /** Can gate actions (scope checks for file/tool operations) */
+  actionGating: boolean;
+  /** Can compile constraint templates via daemon intent API */
+  templateCompilation: boolean;
+  /** Maintains a receipt history that can be queried */
+  receipts: boolean;
+  /** Supports interactive violation resolution (commit/waive) */
+  violations: boolean;
+  /** Exposes governor runtime state (now/status) */
+  governorState: boolean;
+}
+
 // --- Settings ---
 
 export type ClerkTheme = 'dark' | 'light';
@@ -614,6 +633,9 @@ export interface ClerkAPI {
   activityList(limit?: number): Promise<{ events: import('./activity-types.js').ActivityEvent[] }>;
   onActivityEvent(cb: (event: import('./activity-types.js').ActivityEvent) => void): void;
   offActivityEvent(): void;
+
+  // Backend capabilities
+  backendCapabilities(): Promise<BackendCapabilities>;
 
   // Backend config
   backendStatus(): Promise<BackendStatus>;
