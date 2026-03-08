@@ -296,13 +296,15 @@ function hasSentMessages(): boolean {
 }
 
 function buildConversationData(): ConversationData {
-  return {
+  // JSON round-trip strips Svelte 5 reactive proxies so the object
+  // can pass through Electron's structured-clone IPC boundary.
+  return JSON.parse(JSON.stringify({
     id: conversationId!,
     title: conversationTitle || 'Untitled',
     createdAt: conversationCreatedAt || Date.now(),
     updatedAt: Date.now(),
     messages: messages.map(toPersistedMessage),
-  };
+  }));
 }
 
 export async function loadConversationList(): Promise<void> {
@@ -359,9 +361,11 @@ export async function saveCurrentConversation(): Promise<void> {
       } else {
         conversationList.push(result.meta);
       }
+      // Persist as active so it restores on restart
+      await api.conversationSetActive(conversationId);
     }
   } catch {
-    // Fire-and-forget
+    // Best-effort save
   }
 }
 
@@ -384,6 +388,15 @@ export async function newConversation(): Promise<void> {
   state.error = null;
   state.pendingViolation = null;
   state.pendingAsk = null;
+
+  // Add placeholder so sidebar shows immediately (before first save)
+  conversationList.push({
+    id: conversationId,
+    title: '',
+    createdAt: conversationCreatedAt,
+    updatedAt: conversationCreatedAt,
+    messageCount: 0,
+  });
 }
 
 export async function switchConversation(id: string): Promise<void> {
@@ -429,6 +442,8 @@ export async function deleteConversation(id: string): Promise<void> {
   if (idx >= 0) conversationList.splice(idx, 1);
 
   if (id === conversationId) {
+    // Clear so switchConversation won't re-save the deleted conversation
+    messages.length = 0;
     if (conversationList.length > 0) {
       // Switch to most recent
       const sorted = [...conversationList].sort((a, b) => b.updatedAt - a.updatedAt);

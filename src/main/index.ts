@@ -40,6 +40,12 @@ const isE2E = process.env['CLERK_E2E'] === '1';
 
 if (isE2E) {
   console.error(`[clerk] E2E mode: governor_dir=${governorDir} mode=${governorMode}`);
+  // Override userData for test isolation
+  const customUserData = process.env['CLERK_USER_DATA'];
+  if (customUserData) {
+    app.setPath('userData', customUserData);
+    console.error(`[clerk] E2E userData override: ${customUserData}`);
+  }
 }
 
 // --- Resolve daemon binary ---

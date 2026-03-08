@@ -217,7 +217,7 @@
     {:else if daemonOk}
       <div class="workspace">
         {#if sidebarVisible}
-          <div class="workspace-sidebar"><ConversationSidebar /></div>
+          <div class="workspace-sidebar" data-testid="sidebar"><ConversationSidebar /></div>
         {/if}
         <div class="workspace-chat"><Chat /></div>
         {#if detailsOpen}

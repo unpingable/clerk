@@ -273,6 +273,14 @@ async function handleRequest(msg) {
         return send({ jsonrpc: '2.0', id, result: { response: resp, receipt: null, violations: [] }});
       }
 
+      // --- Scenario: slow_echo (3s delay, no tool calls) ---
+      if (scenario === 'slow_echo') {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const resp = `Echo: ${content.slice(0, 50)}`;
+        send({ jsonrpc: '2.0', method: 'chat.delta', params: { content: resp } });
+        return send({ jsonrpc: '2.0', id, result: { response: resp, receipt: null, violations: [] }});
+      }
+
       // --- Default scenario (existing behavior) ---
       if (content.includes('<tool_results>')) {
         if (content.includes('"blocked":true') || content.includes('"ok":false')) {
