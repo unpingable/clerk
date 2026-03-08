@@ -16,6 +16,56 @@
   }
 
   let scrollEl: HTMLDivElement | undefined = $state();
+  let dragging = $state(false);
+  let dragCounter = 0;
+
+  function hasFiles(e: DragEvent): boolean {
+    return e.dataTransfer?.types?.includes('Files') ?? false;
+  }
+
+  function handleDragEnter(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragCounter++;
+    dragging = true;
+  }
+
+  function handleDragOver(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragging = false;
+      dragCounter = 0;
+    }
+  }
+
+  async function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+    dragCounter = 0;
+
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      // webkitRelativePath or path from Electron's File object
+      const filePath = (file as any).path as string | undefined;
+      if (!filePath) continue;
+
+      const result = await chat.attachFile(filePath);
+      if (!result.ok) {
+        window.dispatchEvent(new CustomEvent('clerk:attach-error', {
+          detail: { name: result.name, error: result.error },
+        }));
+      }
+    }
+  }
 
   // Auto-scroll to bottom when messages change
   $effect(() => {
@@ -29,7 +79,14 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="chat">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="chat"
+  ondragenter={handleDragEnter}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+>
   <div class="messages" bind:this={scrollEl}>
     {#if messages.length === 0}
       <div class="empty">
@@ -77,6 +134,10 @@
   {#key chat.state.streaming}
     <ChatInput />
   {/key}
+
+  {#if dragging}
+    <div class="drop-overlay">Drop files to attach</div>
+  {/if}
 </div>
 
 <style>
@@ -85,6 +146,21 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    position: relative;
+  }
+  .drop-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--clerk-bg) 85%, var(--clerk-accent));
+    border: 2px dashed var(--clerk-accent);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-lg, 18px);
+    color: var(--clerk-accent);
+    z-index: 10;
+    pointer-events: none;
   }
   .messages {
     flex: 1;

@@ -24,6 +24,13 @@
     <div class="content">
       {displayContent}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
     </div>
+    {#if message.attachments?.length}
+      <div class="msg-attachments">
+        {#each message.attachments as att}
+          <span class="att-chip">{att.name}</span>
+        {/each}
+      </div>
+    {/if}
     {#if message.fileActions?.length}
       {#each message.fileActions as action}
         <FileActionStrip {action} />
@@ -84,6 +91,20 @@
   }
   @keyframes blink {
     50% { opacity: 0; }
+  }
+  .msg-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .att-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    background: color-mix(in srgb, var(--clerk-accent) 12%, var(--clerk-bg));
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    color: var(--clerk-text-muted);
   }
   .meta {
     margin-top: 4px;
