@@ -31,6 +31,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx electron-builder --dir --linux
+      - run: npx electron-builder --dir --linux --publish never
       - name: Verify output exists
         run: test -f release/linux-unpacked/clerk
