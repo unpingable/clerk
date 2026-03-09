@@ -7,7 +7,7 @@
  * a first-run screen instead of silently hanging.
  */
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
@@ -126,6 +126,14 @@ function createWindow(): BrowserWindow {
 
   const rendererPath = path.join(__dirname, '..', 'renderer', 'index.html');
   win.loadFile(rendererPath);
+
+  // Open external links (target="_blank" from markdown) in the OS browser
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:') || url.startsWith('http:') || url.startsWith('mailto:')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
 
   return win;
 }

@@ -4,6 +4,7 @@
   import type { ChatMessage } from '$shared/types';
   import { formatTimestamp } from '$lib/format';
   import { normalizeStreamingContent } from '$lib/normalize';
+  import { renderMarkdown, attachCopyHandlers } from '$lib/markdown';
   import ReceiptStrip from './ReceiptStrip.svelte';
   import FileActionStrip from './FileActionStrip.svelte';
 
@@ -16,14 +17,34 @@
   const displayContent = $derived(
     isStreaming ? normalizeStreamingContent(message.content) : message.content,
   );
+
+  // Render markdown for assistant messages (not user, not streaming — streaming uses plain text for perf)
+  const renderedHtml = $derived(
+    !isUser && !isStreaming ? renderMarkdown(displayContent) : '',
+  );
+
+  let contentEl: HTMLElement | undefined = $state();
+
+  // Attach copy handlers after markdown renders
+  $effect(() => {
+    if (contentEl && renderedHtml) {
+      attachCopyHandlers(contentEl);
+    }
+  });
 </script>
 
 <div class="message" class:user={isUser} class:assistant={!isUser}>
   <div class="bubble">
     <div class="role">{isUser ? 'You' : 'Clerk'}</div>
-    <div class="content">
-      {displayContent}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
-    </div>
+    {#if isUser || isStreaming}
+      <div class="content plain">
+        {displayContent}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
+      </div>
+    {:else}
+      <div class="content markdown" bind:this={contentEl}>
+        {@html renderedHtml}
+      </div>
+    {/if}
     {#if message.attachments?.length}
       <div class="msg-attachments">
         {#each message.attachments as att}
@@ -79,12 +100,163 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-  .content {
+  .content.plain {
     font-size: var(--font-size-md);
     color: var(--clerk-text);
     white-space: pre-wrap;
     word-break: break-word;
   }
+
+  /* ---- Markdown content ---- */
+  .content.markdown {
+    font-size: var(--font-size-md);
+    color: var(--clerk-text);
+    word-break: break-word;
+  }
+  /* Paragraphs */
+  .content.markdown :global(p) {
+    margin: 0 0 0.6em;
+  }
+  .content.markdown :global(p:last-child) {
+    margin-bottom: 0;
+  }
+  /* Headings */
+  .content.markdown :global(h1),
+  .content.markdown :global(h2),
+  .content.markdown :global(h3),
+  .content.markdown :global(h4) {
+    margin: 0.8em 0 0.4em;
+    font-weight: 600;
+    color: var(--clerk-text);
+    line-height: 1.3;
+  }
+  .content.markdown :global(h1:first-child),
+  .content.markdown :global(h2:first-child),
+  .content.markdown :global(h3:first-child) {
+    margin-top: 0;
+  }
+  .content.markdown :global(h1) { font-size: 1.3em; }
+  .content.markdown :global(h2) { font-size: 1.15em; }
+  .content.markdown :global(h3) { font-size: 1.05em; }
+  .content.markdown :global(h4) { font-size: 1em; }
+  /* Lists */
+  .content.markdown :global(ul),
+  .content.markdown :global(ol) {
+    margin: 0.4em 0 0.6em;
+    padding-left: 1.5em;
+  }
+  .content.markdown :global(li) {
+    margin-bottom: 0.2em;
+  }
+  .content.markdown :global(li > p) {
+    margin-bottom: 0.3em;
+  }
+  /* Inline code */
+  .content.markdown :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    padding: 0.15em 0.35em;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--clerk-surface) 60%, var(--clerk-bg));
+  }
+  /* Code blocks */
+  .content.markdown :global(.code-block) {
+    position: relative;
+    margin: 0.6em 0;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--clerk-bg) 80%, #000);
+    border: 1px solid var(--clerk-border);
+    overflow: hidden;
+  }
+  .content.markdown :global(.code-block pre) {
+    margin: 0;
+    padding: 0.8em 1em;
+    overflow-x: auto;
+  }
+  .content.markdown :global(.code-block code) {
+    padding: 0;
+    background: none;
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+  }
+  .content.markdown :global(.code-lang) {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: var(--font-size-xs);
+    color: var(--clerk-text-muted);
+    background: color-mix(in srgb, var(--clerk-border) 40%, transparent);
+    border-bottom-right-radius: var(--radius-sm);
+  }
+  .content.markdown :global(.code-copy) {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    padding: 2px 8px;
+    font-size: var(--font-size-xs);
+    font-family: var(--font-sans);
+    color: var(--clerk-text-muted);
+    background: color-mix(in srgb, var(--clerk-surface) 50%, transparent);
+    border: 1px solid var(--clerk-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .content.markdown :global(.code-block:hover .code-copy) {
+    opacity: 1;
+  }
+  .content.markdown :global(.code-copy:hover) {
+    background: var(--clerk-surface-hover);
+    color: var(--clerk-text);
+  }
+  /* Blockquotes */
+  .content.markdown :global(blockquote) {
+    margin: 0.4em 0 0.6em;
+    padding: 0.3em 0 0.3em 0.8em;
+    border-left: 3px solid var(--clerk-accent);
+    color: var(--clerk-text-secondary);
+  }
+  .content.markdown :global(blockquote p) {
+    margin-bottom: 0.3em;
+  }
+  /* Horizontal rules */
+  .content.markdown :global(hr) {
+    margin: 0.8em 0;
+    border: none;
+    border-top: 1px solid var(--clerk-border);
+  }
+  /* Tables (GFM) */
+  .content.markdown :global(table) {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    font-size: var(--font-size-sm);
+    width: 100%;
+  }
+  .content.markdown :global(th),
+  .content.markdown :global(td) {
+    padding: 0.3em 0.6em;
+    border: 1px solid var(--clerk-border);
+    text-align: left;
+  }
+  .content.markdown :global(th) {
+    background: color-mix(in srgb, var(--clerk-surface) 40%, var(--clerk-bg));
+    font-weight: 600;
+  }
+  /* Strong / emphasis */
+  .content.markdown :global(strong) {
+    font-weight: 600;
+  }
+  /* Links */
+  .content.markdown :global(a) {
+    color: var(--clerk-accent);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--clerk-accent) 40%, transparent);
+  }
+  .content.markdown :global(a:hover) {
+    color: var(--clerk-accent-hover);
+    text-decoration-color: var(--clerk-accent-hover);
+  }
+
   .cursor {
     animation: blink 1s step-end infinite;
     color: var(--clerk-accent);
