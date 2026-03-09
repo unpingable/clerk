@@ -4,7 +4,7 @@
   import type { ChatMessage } from '$shared/types';
   import { formatTimestamp } from '$lib/format';
   import { normalizeStreamingContent } from '$lib/normalize';
-  import { renderMarkdown, attachCopyHandlers } from '$lib/markdown';
+  import { renderMarkdown, enhanceCodeBlocks } from '$lib/markdown';
   import ReceiptStrip from './ReceiptStrip.svelte';
   import FileActionStrip from './FileActionStrip.svelte';
 
@@ -25,10 +25,10 @@
 
   let contentEl: HTMLElement | undefined = $state();
 
-  // Attach copy handlers after markdown renders
+  // Enhance code blocks (syntax highlighting + copy) after markdown renders
   $effect(() => {
     if (contentEl && renderedHtml) {
-      attachCopyHandlers(contentEl);
+      enhanceCodeBlocks(contentEl);
     }
   });
 </script>

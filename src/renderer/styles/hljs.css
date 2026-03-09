@@ -1,0 +1,213 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Syntax highlighting colors — uses Clerk design tokens where possible.
+   Covers both dark and light themes via [data-theme="light"] overrides. */
+
+/* ---- Dark theme (default) ---- */
+
+.hljs {
+  color: #d4d4d4;
+}
+
+/* Keywords: if, else, return, function, class, import, export */
+.hljs-keyword,
+.hljs-selector-tag {
+  color: #c792ea;
+}
+
+/* Built-in types/functions: console, print, int, str */
+.hljs-built_in,
+.hljs-type {
+  color: #82aaff;
+}
+
+/* Strings */
+.hljs-string,
+.hljs-template-tag,
+.hljs-template-variable {
+  color: #c3e88d;
+}
+
+/* Numbers, booleans, null */
+.hljs-number,
+.hljs-literal {
+  color: #f78c6c;
+}
+
+/* Comments */
+.hljs-comment,
+.hljs-doctag {
+  color: #676e95;
+  font-style: italic;
+}
+
+/* Function/method names */
+.hljs-title,
+.hljs-section {
+  color: #82aaff;
+}
+
+/* Function definition names */
+.hljs-title.function_ {
+  color: #82aaff;
+}
+
+/* Class names */
+.hljs-title.class_ {
+  color: #ffcb6b;
+}
+
+/* Variables, params */
+.hljs-variable,
+.hljs-params {
+  color: #d4d4d4;
+}
+
+/* Attributes (HTML, XML) */
+.hljs-attr,
+.hljs-attribute {
+  color: #ffcb6b;
+}
+
+/* Tags (HTML) */
+.hljs-tag {
+  color: #89ddff;
+}
+
+/* Symbols, regex */
+.hljs-symbol,
+.hljs-regexp {
+  color: #89ddff;
+}
+
+/* Meta / preprocessor */
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: #ff5370;
+}
+
+/* Punctuation */
+.hljs-punctuation {
+  color: #89ddff;
+}
+
+/* Operators */
+.hljs-operator {
+  color: #89ddff;
+}
+
+/* Property names (JSON keys, object properties) */
+.hljs-property {
+  color: #f07178;
+}
+
+/* Diff */
+.hljs-addition {
+  color: #c3e88d;
+  background: rgba(195, 232, 141, 0.1);
+}
+.hljs-deletion {
+  color: #ff5370;
+  background: rgba(255, 83, 112, 0.1);
+}
+
+/* Selection within code */
+.hljs::selection,
+.hljs *::selection {
+  background: rgba(92, 124, 250, 0.3);
+}
+
+/* ---- Light theme ---- */
+
+[data-theme="light"] .hljs {
+  color: #383a42;
+}
+
+[data-theme="light"] .hljs-keyword,
+[data-theme="light"] .hljs-selector-tag {
+  color: #a626a4;
+}
+
+[data-theme="light"] .hljs-built_in,
+[data-theme="light"] .hljs-type {
+  color: #4078f2;
+}
+
+[data-theme="light"] .hljs-string,
+[data-theme="light"] .hljs-template-tag,
+[data-theme="light"] .hljs-template-variable {
+  color: #50a14f;
+}
+
+[data-theme="light"] .hljs-number,
+[data-theme="light"] .hljs-literal {
+  color: #986801;
+}
+
+[data-theme="light"] .hljs-comment,
+[data-theme="light"] .hljs-doctag {
+  color: #a0a1a7;
+  font-style: italic;
+}
+
+[data-theme="light"] .hljs-title,
+[data-theme="light"] .hljs-section {
+  color: #4078f2;
+}
+
+[data-theme="light"] .hljs-title.function_ {
+  color: #4078f2;
+}
+
+[data-theme="light"] .hljs-title.class_ {
+  color: #c18401;
+}
+
+[data-theme="light"] .hljs-variable,
+[data-theme="light"] .hljs-params {
+  color: #383a42;
+}
+
+[data-theme="light"] .hljs-attr,
+[data-theme="light"] .hljs-attribute {
+  color: #986801;
+}
+
+[data-theme="light"] .hljs-tag {
+  color: #e45649;
+}
+
+[data-theme="light"] .hljs-symbol,
+[data-theme="light"] .hljs-regexp {
+  color: #0184bc;
+}
+
+[data-theme="light"] .hljs-meta,
+[data-theme="light"] .hljs-meta .hljs-keyword {
+  color: #e45649;
+}
+
+[data-theme="light"] .hljs-punctuation {
+  color: #a0a1a7;
+}
+
+[data-theme="light"] .hljs-operator {
+  color: #0184bc;
+}
+
+[data-theme="light"] .hljs-property {
+  color: #e45649;
+}
+
+[data-theme="light"] .hljs-addition {
+  color: #50a14f;
+  background: rgba(80, 161, 79, 0.1);
+}
+[data-theme="light"] .hljs-deletion {
+  color: #e45649;
+  background: rgba(228, 86, 73, 0.1);
+}
+
+[data-theme="light"] .hljs::selection,
+[data-theme="light"] .hljs *::selection {
+  background: rgba(52, 81, 178, 0.2);
+}

@@ -6,10 +6,47 @@
  * - No raw HTML passthrough (all HTML tags escaped)
  * - Links open in external browser (target="_blank", rel="noopener")
  * - Sanitized href (only http/https/mailto)
- * - Code blocks get a copy button via post-processing
+ * - Code blocks get syntax highlighting via highlight.js + copy button
  */
 
 import { Marked } from 'marked';
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import bash from 'highlight.js/lib/languages/bash';
+import json from 'highlight.js/lib/languages/json';
+import xml from 'highlight.js/lib/languages/xml';
+import css from 'highlight.js/lib/languages/css';
+import sql from 'highlight.js/lib/languages/sql';
+import rust from 'highlight.js/lib/languages/rust';
+import go from 'highlight.js/lib/languages/go';
+import yaml from 'highlight.js/lib/languages/yaml';
+import markdown from 'highlight.js/lib/languages/markdown';
+import diff from 'highlight.js/lib/languages/diff';
+
+// Register languages
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('js', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('py', python);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('sh', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('html', xml);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('yml', yaml);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
+hljs.registerLanguage('diff', diff);
 
 const ALLOWED_HREF = /^(https?:|mailto:)/i;
 
@@ -74,25 +111,38 @@ export function renderMarkdown(source: string): string {
 }
 
 /**
- * Attach copy-button click handlers to code blocks inside a container element.
+ * Enhance code blocks inside a container element:
+ * - Syntax highlighting via highlight.js
+ * - Copy-button click handlers
+ *
  * Call this after mounting/updating the DOM with rendered markdown.
  */
-export function attachCopyHandlers(container: HTMLElement): void {
-  const buttons = container.querySelectorAll<HTMLButtonElement>('.code-copy');
-  for (const btn of buttons) {
-    // Avoid double-binding
-    if (btn.dataset.bound) continue;
-    btn.dataset.bound = '1';
-    btn.addEventListener('click', () => {
-      const codeEl = btn.closest('.code-block')?.querySelector('code');
-      if (!codeEl) return;
-      navigator.clipboard.writeText(codeEl.textContent ?? '').then(
-        () => {
-          btn.textContent = 'Copied!';
-          setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-        },
-        () => { /* clipboard write failed — ignore silently */ },
-      );
-    });
+export function enhanceCodeBlocks(container: HTMLElement): void {
+  const blocks = container.querySelectorAll<HTMLElement>('.code-block');
+  for (const block of blocks) {
+    // Avoid double-processing
+    if (block.dataset.enhanced) continue;
+    block.dataset.enhanced = '1';
+
+    // Syntax highlight
+    const codeEl = block.querySelector('code');
+    if (codeEl) {
+      hljs.highlightElement(codeEl);
+    }
+
+    // Copy button
+    const btn = block.querySelector<HTMLButtonElement>('.code-copy');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        if (!codeEl) return;
+        navigator.clipboard.writeText(codeEl.textContent ?? '').then(
+          () => {
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+          },
+          () => { /* clipboard write failed — ignore silently */ },
+        );
+      });
+    }
   }
 }

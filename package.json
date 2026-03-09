@@ -46,6 +46,7 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.24.0",
+    "highlight.js": "^11.11.1",
     "jsdom": "^25.0.0",
     "marked": "^17.0.4",
     "svelte": "^5.0.0",

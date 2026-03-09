@@ -2,6 +2,7 @@
 /* Global reset + typography */
 
 @import './tokens.css';
+@import './hljs.css';
 
 *, *::before, *::after {
   box-sizing: border-box;
