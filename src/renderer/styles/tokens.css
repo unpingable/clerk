@@ -56,33 +56,33 @@
 
 /* Light theme overrides */
 [data-theme="light"] {
-  /* Background */
-  --clerk-bg: #ffffff;
-  --clerk-bg-secondary: #f5f5f7;
-  --clerk-surface: #e8e8ec;
-  --clerk-surface-hover: #dcdce0;
+  /* Background — warm white, not clinical */
+  --clerk-bg: #fafafa;
+  --clerk-bg-secondary: #f0f0f2;
+  --clerk-surface: #e4e4e8;
+  --clerk-surface-hover: #d8d8dc;
 
-  /* Text */
-  --clerk-text: #1d1d1f;
-  --clerk-text-secondary: #505058;
-  --clerk-text-muted: #767680;
+  /* Text — dark but not black, readable */
+  --clerk-text: #1c1c1e;
+  --clerk-text-secondary: #48484f;
+  --clerk-text-muted: #8e8e93;
 
-  /* Accent */
-  --clerk-accent: #3451b2;
-  --clerk-accent-hover: #2c44a0;
+  /* Accent — deeper blue for contrast on white */
+  --clerk-accent: #2d5dd4;
+  --clerk-accent-hover: #1f4cb8;
 
-  /* Verdicts */
-  --clerk-pass: #237b32;
-  --clerk-warn: #996a0a;
-  --clerk-block: #d1383d;
+  /* Verdicts — saturated enough to read on white */
+  --clerk-pass: #1a8a2e;
+  --clerk-warn: #b07808;
+  --clerk-block: #cc2d33;
 
-  /* Chat bubbles */
-  --clerk-user-bg: #e8edf6;
-  --clerk-user-border: #d0d8e8;
-  --clerk-assistant-bg: #f0f0f4;
-  --clerk-assistant-border: #e0e0e6;
+  /* Chat bubbles — subtle distinction */
+  --clerk-user-bg: #e4ecf8;
+  --clerk-user-border: #c8d6ea;
+  --clerk-assistant-bg: #f2f2f5;
+  --clerk-assistant-border: #dddde2;
 
-  /* Borders */
-  --clerk-border: #c0c0c6;
-  --clerk-border-light: #d4d4d8;
+  /* Borders — visible but quiet */
+  --clerk-border: #d0d0d5;
+  --clerk-border-light: #e0e0e4;
 }
