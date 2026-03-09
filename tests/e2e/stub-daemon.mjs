@@ -25,7 +25,7 @@ import fs from 'node:fs';
 
 // Handle --version probe from daemon-resolver
 if (process.argv.includes('--version')) {
-  process.stdout.write('governor-stub 2.5.0\n');
+  process.stdout.write('governor-stub 2.7.0\n');
   process.exit(0);
 }
 
