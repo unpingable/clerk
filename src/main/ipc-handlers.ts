@@ -9,7 +9,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { Channels } from '../shared/channels.js';
 import type { ClerkBackend } from './backend.js';
 import { ConnectionMonitor } from './connection.js';
@@ -571,6 +571,36 @@ export function registerIpcHandlers(
       }
       const contentHash = crypto.createHash('sha256').update(buf).digest('hex');
       return { ok: true, content: text, contentHash, size: buf.length };
+    } catch (err) {
+      return { ok: false, error: sanitizeError(err) };
+    }
+  });
+
+  // --- Shell / Dialogs ---
+
+  ipcMain.handle(Channels.SHOW_SAVE_DIALOG, async (_event, options: unknown) => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (!win) return null;
+    const opts = (options && typeof options === 'object' ? options : {}) as {
+      title?: string;
+      defaultPath?: string;
+      filters?: Array<{ name: string; extensions: string[] }>;
+    };
+    const result = await dialog.showSaveDialog(win, {
+      title: opts.title,
+      defaultPath: opts.defaultPath,
+      filters: opts.filters,
+    });
+    return result.canceled ? null : result.filePath;
+  });
+
+  ipcMain.handle(Channels.SAVE_FILE, async (_event, filePath: unknown, content: unknown) => {
+    if (typeof filePath !== 'string' || typeof content !== 'string') {
+      return { ok: false, error: 'Invalid arguments' };
+    }
+    try {
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: sanitizeError(err) };
     }

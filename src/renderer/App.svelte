@@ -18,6 +18,7 @@
   import * as caps from './stores/capabilities.svelte';
   import { loadSettings } from './stores/settings.svelte';
   import { api } from '$lib/api';
+  import { exportConversation } from '$lib/export';
   import type { DaemonStatus, DaemonStatusErr, BackendStatus } from '$shared/types';
 
   let daemonStatus = $state<DaemonStatus | null>(null);
@@ -75,6 +76,17 @@
       e.preventDefault();
       if (canShowSidebar) {
         sidebarUserToggled = sidebarUserToggled === null ? false : !sidebarUserToggled;
+      }
+      return;
+    }
+
+    // Cmd/Ctrl+Shift+E: export conversation
+    if (mod && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      if (!chat.state.streaming) {
+        const title = chat.getConversationTitle() || 'Conversation';
+        const messages = chat.getMessages();
+        exportConversation(title, messages);
       }
       return;
     }
@@ -142,11 +154,17 @@
         sidebarUserToggled = sidebarUserToggled === null ? false : !sidebarUserToggled;
       }
     }
+    function handleExportConversation() {
+      const title = chat.getConversationTitle() || 'Conversation';
+      const messages = chat.getMessages();
+      exportConversation(title, messages);
+    }
 
     window.addEventListener('clerk:change-backend', handleChangeBackend);
     window.addEventListener('clerk:toggle-details', handleToggleDetails);
     window.addEventListener('clerk:open-details', handleOpenDetails);
     window.addEventListener('clerk:toggle-sidebar', handleToggleSidebar);
+    window.addEventListener('clerk:export-conversation', handleExportConversation);
 
     api.daemonStatus().then(async (status) => {
       daemonStatus = status;
@@ -189,6 +207,7 @@
       window.removeEventListener('clerk:toggle-details', handleToggleDetails);
       window.removeEventListener('clerk:open-details', handleOpenDetails);
       window.removeEventListener('clerk:toggle-sidebar', handleToggleSidebar);
+      window.removeEventListener('clerk:export-conversation', handleExportConversation);
     };
   });
 </script>

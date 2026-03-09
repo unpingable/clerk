@@ -75,6 +75,10 @@ export const Channels = {
   ACTIVITY_LIST: 'activity:list',
   ACTIVITY_EVENT: 'activity:event',
 
+  // Shell / dialogs
+  SHOW_SAVE_DIALOG: 'shell:showSaveDialog',
+  SAVE_FILE: 'shell:saveFile',
+
   // Conversations
   CONV_LIST: 'conv:list',
   CONV_LOAD: 'conv:load',

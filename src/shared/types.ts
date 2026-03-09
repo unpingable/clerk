@@ -645,6 +645,10 @@ export interface ClerkAPI {
   settingsGetAll(): Promise<ClerkSettings>;
   settingsSet(partial: Partial<ClerkSettings>): Promise<ClerkSettings>;
 
+  // Shell / dialogs
+  showSaveDialog(options: { title?: string; defaultPath?: string; filters?: Array<{ name: string; extensions: string[] }> }): Promise<string | null>;
+  saveFile(filePath: string, content: string): Promise<{ ok: boolean; error?: string }>;
+
   // Conversations
   conversationList(): Promise<ConversationListResult>;
   conversationLoad(id: string): Promise<ConversationLoadResult>;

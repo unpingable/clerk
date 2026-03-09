@@ -11,6 +11,7 @@ export type CommandActionId =
   | 'change-backend'
   | 'new-conversation'
   | 'toggle-sidebar'
+  | 'export-conversation'
   | `request-template:${string}`
   | `activity-filter:${string}`;
 
@@ -137,6 +138,17 @@ export function buildCommands(ctx: CommandContext): Command[] {
     shortcut: `${ctx.modKeyLabel}+D`,
     action: { type: 'ui', actionId: 'toggle-details' },
   });
+
+  if (!ctx.streaming) {
+    commands.push({
+      id: 'export-conversation',
+      label: 'Export conversation...',
+      group: 'Control',
+      keywords: ['export', 'save', 'download', 'markdown', 'backup'],
+      shortcut: `${ctx.modKeyLabel}+Shift+E`,
+      action: { type: 'ui', actionId: 'export-conversation' },
+    });
+  }
 
   // --- Profile (only when backend supports template compilation) ---
   if (ctx.hasTemplateCompilation) {

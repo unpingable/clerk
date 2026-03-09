@@ -113,6 +113,10 @@ const api: ClerkAPI = {
   settingsGetAll: () => ipcRenderer.invoke(Channels.SETTINGS_GET_ALL),
   settingsSet: (partial) => ipcRenderer.invoke(Channels.SETTINGS_SET, partial),
 
+  // Shell / dialogs
+  showSaveDialog: (options) => ipcRenderer.invoke(Channels.SHOW_SAVE_DIALOG, options),
+  saveFile: (filePath: string, content: string) => ipcRenderer.invoke(Channels.SAVE_FILE, filePath, content),
+
   // Conversations
   conversationList: () => ipcRenderer.invoke(Channels.CONV_LIST),
   conversationLoad: (id: string) => ipcRenderer.invoke(Channels.CONV_LOAD, id),
