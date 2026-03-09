@@ -41,6 +41,8 @@ export const state = $state({
   availableModels: [] as ModelInfo[],
   error: null as string | null,
   pendingAsk: null as AskRequest | null,
+  /** Last user message text that failed to send — for retry */
+  lastFailedMessage: null as string | null,
 });
 
 // --- Derived ---
@@ -69,6 +71,7 @@ export async function send(content: string): Promise<void> {
   if (!canSend || (!hasText && snapshot.length === 0)) return;
 
   state.error = null;
+  state.lastFailedMessage = null;
 
   // Clear pending attachments immediately (content freed from memory)
   pendingAttachments.length = 0;
@@ -126,6 +129,12 @@ export async function send(content: string): Promise<void> {
   } catch (err) {
     state.streaming = false;
     state.error = String(err);
+    state.lastFailedMessage = content;
+    // Remove the user message that was added before the error
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === 'user') {
+      messages.pop();
+    }
   }
 }
 
@@ -234,6 +243,15 @@ export async function loadModels(): Promise<void> {
 
 export function clearError(): void {
   state.error = null;
+  state.lastFailedMessage = null;
+}
+
+export function retry(): void {
+  if (!state.lastFailedMessage) return;
+  const msg = state.lastFailedMessage;
+  state.error = null;
+  state.lastFailedMessage = null;
+  send(msg);
 }
 
 // --- Attachment actions ---

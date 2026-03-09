@@ -5,6 +5,7 @@ import {
   friendlyProfile,
   friendlyError,
   friendlyVerdict,
+  classifyChatError,
   KNOWN_TOOLS,
   KNOWN_ERRORS,
   KNOWN_PROFILES,
@@ -130,5 +131,71 @@ describe('friendlyVerdict', () => {
       const result = friendlyVerdict(v, true);
       expect(result.label).not.toBe(v);
     }
+  });
+});
+
+describe('classifyChatError', () => {
+  it('classifies network errors', () => {
+    const info = classifyChatError('Error: ECONNREFUSED 127.0.0.1:8080', true);
+    expect(info.message).toBe('Network connection failed');
+    expect(info.retryable).toBe(true);
+    expect(info.severity).toBe('error');
+    expect(info.hint).toContain('internet');
+  });
+
+  it('classifies auth errors as fatal', () => {
+    const info = classifyChatError('401 Unauthorized', true);
+    expect(info.message).toBe('Authentication failed');
+    expect(info.retryable).toBe(false);
+    expect(info.severity).toBe('fatal');
+  });
+
+  it('classifies rate limits as warning', () => {
+    const info = classifyChatError('429 Too Many Requests', true);
+    expect(info.message).toBe('Rate limited');
+    expect(info.retryable).toBe(true);
+    expect(info.severity).toBe('warning');
+  });
+
+  it('classifies server errors', () => {
+    const info = classifyChatError('Error: 502 Bad Gateway', true);
+    expect(info.message).toContain('unavailable');
+    expect(info.retryable).toBe(true);
+  });
+
+  it('classifies timeouts', () => {
+    const info = classifyChatError('Request timed out after 60s', true);
+    expect(info.message).toBe('Request timed out');
+    expect(info.retryable).toBe(true);
+  });
+
+  it('classifies daemon not ready', () => {
+    const info = classifyChatError('Error: DAEMON_NOT_READY', true);
+    expect(info.message).toContain('not ready');
+    expect(info.retryable).toBe(true);
+  });
+
+  it('classifies model not found', () => {
+    const info = classifyChatError('model claude-99 not found', true);
+    expect(info.message).toContain('model');
+    expect(info.retryable).toBe(false);
+  });
+
+  it('falls back gracefully for unknown errors', () => {
+    const info = classifyChatError('some weird thing happened', true);
+    expect(info.message).toBe('Something went wrong');
+    expect(info.retryable).toBe(true);
+    expect(info.hint).toBeTruthy();
+  });
+
+  it('includes raw error in technical mode', () => {
+    const info = classifyChatError('ECONNREFUSED 127.0.0.1', false);
+    expect(info.message).toContain('ECONNREFUSED');
+    expect(info.message).toContain('Network connection failed');
+  });
+
+  it('includes raw error for unknown in technical mode', () => {
+    const info = classifyChatError('xyzzy', false);
+    expect(info.message).toContain('xyzzy');
   });
 });

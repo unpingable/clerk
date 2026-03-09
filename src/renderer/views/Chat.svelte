@@ -6,6 +6,12 @@
   import ChatInput from '../components/ChatInput.svelte';
   import ViolationCard from '../components/ViolationCard.svelte';
   import AskCard from '../components/AskCard.svelte';
+  import { classifyChatError } from '$lib/jargon';
+  import { settings } from '../stores/settings.svelte';
+
+  const errorInfo = $derived(
+    chat.state.error ? classifyChatError(chat.state.error, settings.friendlyMode) : null,
+  );
 
   const messages = $derived(chat.getMessages());
 
@@ -123,10 +129,21 @@
       </div>
     {/if}
 
-    {#if chat.state.error}
-      <div class="error">
-        <span>Error: {chat.state.error}</span>
-        <button onclick={() => chat.clearError()}>Dismiss</button>
+    {#if errorInfo}
+      <div class="error-card" class:warning={errorInfo.severity === 'warning'} class:fatal={errorInfo.severity === 'fatal'}>
+        <div class="error-icon">
+          {#if errorInfo.severity === 'warning'}&#9888;{:else}&#10007;{/if}
+        </div>
+        <div class="error-body">
+          <div class="error-message">{errorInfo.message}</div>
+          <div class="error-hint">{errorInfo.hint}</div>
+        </div>
+        <div class="error-actions">
+          {#if errorInfo.retryable && chat.state.lastFailedMessage}
+            <button class="error-retry" onclick={() => chat.retry()}>Retry</button>
+          {/if}
+          <button class="error-dismiss" onclick={() => chat.clearError()}>Dismiss</button>
+        </div>
       </div>
     {/if}
   </div>
@@ -201,27 +218,79 @@
   .violation-wrap {
     padding: 0 var(--sp-md);
   }
-  .error {
+  .error-card {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--sp-sm);
     margin: var(--sp-sm) var(--sp-md);
     padding: var(--sp-sm) var(--sp-md);
-    background: color-mix(in srgb, var(--clerk-block) 12%, var(--clerk-bg));
-    border: 1px solid var(--clerk-block);
+    background: color-mix(in srgb, var(--clerk-block) 10%, var(--clerk-bg));
+    border: 1px solid color-mix(in srgb, var(--clerk-block) 40%, var(--clerk-border));
+    border-left: 3px solid var(--clerk-block);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
+  }
+  .error-card.warning {
+    background: color-mix(in srgb, var(--clerk-warn) 8%, var(--clerk-bg));
+    border-color: color-mix(in srgb, var(--clerk-warn) 30%, var(--clerk-border));
+    border-left-color: var(--clerk-warn);
+  }
+  .error-card.fatal {
+    background: color-mix(in srgb, var(--clerk-block) 14%, var(--clerk-bg));
+    border-left-width: 4px;
+  }
+  .error-icon {
+    font-size: var(--font-size-lg);
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .error-card .error-icon {
     color: var(--clerk-block);
   }
-  .error button {
-    margin-left: auto;
+  .error-card.warning .error-icon {
+    color: var(--clerk-warn);
+  }
+  .error-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .error-message {
+    color: var(--clerk-text);
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .error-hint {
+    color: var(--clerk-text-secondary);
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+    margin-top: 2px;
+  }
+  .error-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .error-retry {
+    background: color-mix(in srgb, var(--clerk-accent) 15%, var(--clerk-bg));
+    color: var(--clerk-accent);
+    font-size: var(--font-size-xs);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+  }
+  .error-retry:hover {
+    background: color-mix(in srgb, var(--clerk-accent) 25%, var(--clerk-bg));
+  }
+  .error-dismiss {
     background: none;
     color: var(--clerk-text-muted);
     font-size: var(--font-size-xs);
-    padding: 2px 8px;
+    padding: 4px 8px;
     border-radius: var(--radius-sm);
   }
-  .error button:hover {
+  .error-dismiss:hover {
     color: var(--clerk-text);
   }
 </style>
