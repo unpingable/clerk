@@ -14,6 +14,7 @@ import type {
   ConversationListResult,
   ConversationLoadResult,
   ConversationSaveResult,
+  ConversationSearchHit,
   PersistedChatMessage,
 } from '../shared/types.js';
 
@@ -294,5 +295,52 @@ export class ConversationManager {
 
   getActiveId(): string | null {
     return this.index.activeId;
+  }
+
+  /**
+   * Search across all conversation message content (case-insensitive).
+   * Returns up to 20 hits with message snippets.
+   */
+  search(query: string): ConversationSearchHit[] {
+    if (!query.trim()) return [];
+    const lower = query.toLowerCase();
+    const hits: ConversationSearchHit[] = [];
+    const MAX_HITS = 20;
+    const SNIPPET_LEN = 80;
+
+    for (const meta of this.index.conversations) {
+      if (hits.length >= MAX_HITS) break;
+
+      // Check title first (cheap)
+      const titleMatch = meta.title.toLowerCase().includes(lower);
+
+      // Load conversation to search messages
+      const result = this.load(meta.id);
+      if (!result.ok) continue;
+
+      for (const msg of result.conversation.messages) {
+        if (hits.length >= MAX_HITS) break;
+        const idx = msg.content.toLowerCase().indexOf(lower);
+        if (idx === -1 && !titleMatch) continue;
+        if (idx === -1) continue; // Title matched but this message didn't
+
+        // Build snippet around match
+        const start = Math.max(0, idx - 30);
+        const end = Math.min(msg.content.length, idx + query.length + SNIPPET_LEN - 30);
+        let snippet = msg.content.slice(start, end).replace(/\n/g, ' ');
+        if (start > 0) snippet = '...' + snippet;
+        if (end < msg.content.length) snippet = snippet + '...';
+
+        hits.push({
+          conversationId: meta.id,
+          title: meta.title,
+          snippet,
+          messageRole: msg.role as 'user' | 'assistant',
+          updatedAt: meta.updatedAt,
+        });
+      }
+    }
+
+    return hits;
   }
 }

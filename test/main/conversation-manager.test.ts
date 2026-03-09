@@ -226,6 +226,83 @@ describe('generateTitle', () => {
   });
 });
 
+describe('ConversationManager.search', () => {
+  let io: ReturnType<typeof makeIO>;
+  let mgr: ConversationManager;
+
+  beforeEach(() => {
+    io = makeIO();
+    mgr = new ConversationManager('/data', io);
+  });
+
+  it('finds matching message content', () => {
+    mgr.save({
+      id: 'a', title: 'Chat A', createdAt: 1000, updatedAt: 2000,
+      messages: [
+        { id: 'm1', role: 'user', content: 'How do I deploy to production?', timestamp: 1000 },
+        { id: 'm2', role: 'assistant', content: 'You can use CI/CD pipelines.', timestamp: 1001 },
+      ],
+    });
+    const hits = mgr.search('deploy');
+    expect(hits.length).toBe(1);
+    expect(hits[0].conversationId).toBe('a');
+    expect(hits[0].snippet).toContain('deploy');
+  });
+
+  it('returns empty for no matches', () => {
+    mgr.save({
+      id: 'b', title: 'Chat B', createdAt: 1000, updatedAt: 2000,
+      messages: [{ id: 'm1', role: 'user', content: 'Hello world', timestamp: 1000 }],
+    });
+    expect(mgr.search('xyzzy')).toEqual([]);
+  });
+
+  it('is case-insensitive', () => {
+    mgr.save({
+      id: 'c', title: 'Chat C', createdAt: 1000, updatedAt: 2000,
+      messages: [{ id: 'm1', role: 'user', content: 'TypeScript is great', timestamp: 1000 }],
+    });
+    const hits = mgr.search('typescript');
+    expect(hits.length).toBe(1);
+  });
+
+  it('returns empty for empty query', () => {
+    mgr.save({
+      id: 'd', title: 'Chat D', createdAt: 1000, updatedAt: 2000,
+      messages: [{ id: 'm1', role: 'user', content: 'anything', timestamp: 1000 }],
+    });
+    expect(mgr.search('')).toEqual([]);
+    expect(mgr.search('   ')).toEqual([]);
+  });
+
+  it('searches across multiple conversations', () => {
+    mgr.save({
+      id: 'e1', title: 'Chat E1', createdAt: 1000, updatedAt: 2000,
+      messages: [{ id: 'm1', role: 'user', content: 'How to write tests', timestamp: 1000 }],
+    });
+    mgr.save({
+      id: 'e2', title: 'Chat E2', createdAt: 1000, updatedAt: 2000,
+      messages: [{ id: 'm2', role: 'assistant', content: 'Use vitest for tests', timestamp: 1000 }],
+    });
+    const hits = mgr.search('tests');
+    expect(hits.length).toBe(2);
+    const ids = hits.map(h => h.conversationId);
+    expect(ids).toContain('e1');
+    expect(ids).toContain('e2');
+  });
+
+  it('includes snippet with context around match', () => {
+    mgr.save({
+      id: 'f', title: 'Chat F', createdAt: 1000, updatedAt: 2000,
+      messages: [{ id: 'm1', role: 'user', content: 'The quick brown fox jumps over the lazy dog', timestamp: 1000 }],
+    });
+    const hits = mgr.search('fox');
+    expect(hits.length).toBe(1);
+    expect(hits[0].snippet).toContain('fox');
+    expect(hits[0].messageRole).toBe('user');
+  });
+});
+
 describe('toPersistedMessage', () => {
   it('strips streaming flag', () => {
     const msg: ChatMessage = {

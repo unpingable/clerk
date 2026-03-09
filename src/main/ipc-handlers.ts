@@ -48,7 +48,12 @@ function sanitizeError(err: unknown): string {
   }
 
   // Generic RPC error code pattern (e.g. "RPC -32700: ...")
-  if (/^RPC\s+-?\d+/i.test(raw) || /jsonrpc/i.test(raw)) {
+  // Extract the human-readable message after the code, if present
+  const rpcMatch = raw.match(/^RPC\s+-?\d+:\s*(.+)/i);
+  if (rpcMatch) {
+    return rpcMatch[1]; // Pass through the daemon's descriptive message
+  }
+  if (/jsonrpc/i.test(raw)) {
     return "Clerk couldn't complete that request. Try again.";
   }
 
@@ -639,6 +644,11 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.CONV_SET_ACTIVE, async (_event, id: unknown) => {
     if (!conversationManager) return;
     conversationManager.setActive(typeof id === 'string' ? id : null);
+  });
+
+  ipcMain.handle(Channels.CONV_SEARCH, async (_event, query: unknown) => {
+    if (!conversationManager || typeof query !== 'string') return [];
+    return conversationManager.search(query);
   });
 
   // --- Activity Feed ---

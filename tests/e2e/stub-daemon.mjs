@@ -281,6 +281,28 @@ async function handleRequest(msg) {
         return send({ jsonrpc: '2.0', id, result: { response: resp, receipt: null, violations: [] }});
       }
 
+      // --- Scenario: error_network — crash mid-stream (simulates connection loss) ---
+      if (scenario === 'error_network') {
+        send({ jsonrpc: '2.0', method: 'chat.delta', params: { content: 'Starting to respond...' } });
+        await new Promise(resolve => setTimeout(resolve, 100));
+        process.exit(1); // crash
+      }
+
+      // --- Scenario: error_auth — daemon returns auth error ---
+      if (scenario === 'error_auth') {
+        return rpcError(id, -32000, 'Authentication failed: invalid API key (HTTP 401)');
+      }
+
+      // --- Scenario: error_rate_limit — daemon returns rate limit error ---
+      if (scenario === 'error_rate_limit') {
+        return rpcError(id, -32000, 'Rate limit exceeded (HTTP 429). Please try again later.');
+      }
+
+      // --- Scenario: error_server — daemon returns 500 server error ---
+      if (scenario === 'error_server') {
+        return rpcError(id, -32000, 'Internal server error (HTTP 500): upstream provider unavailable');
+      }
+
       // --- Default scenario (existing behavior) ---
       if (content.includes('<tool_results>')) {
         if (content.includes('"blocked":true') || content.includes('"ok":false')) {

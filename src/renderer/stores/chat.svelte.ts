@@ -160,6 +160,17 @@ export function onEnd(data: ChatStreamEnd): void {
     if (data.result.pending) {
       state.pendingViolation = data.result.pending;
     }
+
+    // If the stream ended with no content but has violations, treat as an error.
+    // This happens when the daemon returns an RPC error (auth, rate limit, etc.)
+    // that gets caught by the tool loop's error handler.
+    if (!last.content && last.violations.length > 0 && !last.receipt) {
+      const errorDesc = last.violations[0]?.description ?? 'An error occurred';
+      state.error = errorDesc;
+      state.lastFailedMessage = messages.length >= 2 ? messages[messages.length - 2]?.content ?? null : null;
+      // Remove the empty assistant message
+      messages.pop();
+    }
   }
   if (data.streamId) stoppedStreams.delete(data.streamId);
   state.streaming = false;

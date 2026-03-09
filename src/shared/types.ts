@@ -535,6 +535,15 @@ export type ConversationSaveResult =
   | { ok: true; meta: ConversationMeta }
   | { ok: false; error: string };
 
+export interface ConversationSearchHit {
+  conversationId: string;
+  title: string;
+  /** Snippet of matching message content */
+  snippet: string;
+  messageRole: 'user' | 'assistant';
+  updatedAt: number;
+}
+
 // --- Backend capabilities ---
 
 export interface BackendCapabilities {
@@ -656,6 +665,7 @@ export interface ClerkAPI {
   conversationDelete(id: string): Promise<boolean>;
   conversationRename(id: string, title: string): Promise<ConversationMeta | null>;
   conversationSetActive(id: string | null): Promise<void>;
+  conversationSearch(query: string): Promise<ConversationSearchHit[]>;
 
   // Connection state events
   onConnectionState(cb: (state: string) => void): void;

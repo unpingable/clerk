@@ -86,6 +86,7 @@ export const Channels = {
   CONV_DELETE: 'conv:delete',
   CONV_RENAME: 'conv:rename',
   CONV_SET_ACTIVE: 'conv:setActive',
+  CONV_SEARCH: 'conv:search',
 } as const;
 
 export type Channel = (typeof Channels)[keyof typeof Channels];

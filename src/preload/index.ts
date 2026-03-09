@@ -124,6 +124,7 @@ const api: ClerkAPI = {
   conversationDelete: (id: string) => ipcRenderer.invoke(Channels.CONV_DELETE, id),
   conversationRename: (id: string, title: string) => ipcRenderer.invoke(Channels.CONV_RENAME, id, title),
   conversationSetActive: (id) => ipcRenderer.invoke(Channels.CONV_SET_ACTIVE, id),
+  conversationSearch: (query: string) => ipcRenderer.invoke(Channels.CONV_SEARCH, query),
 
   // Activity feed
   activityList: (limit?) => ipcRenderer.invoke(Channels.ACTIVITY_LIST, limit),
