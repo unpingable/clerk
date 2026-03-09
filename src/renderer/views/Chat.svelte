@@ -83,8 +83,21 @@
   }
 
   let scrollEl: HTMLDivElement | undefined = $state();
+  let showScrollBtn = $state(false);
   let dragging = $state(false);
   let dragCounter = 0;
+
+  function handleScroll() {
+    if (!scrollEl) return;
+    const distFromBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    showScrollBtn = distFromBottom > 100;
+  }
+
+  function scrollToBottom() {
+    if (scrollEl) {
+      scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' });
+    }
+  }
 
   function hasFiles(e: DragEvent): boolean {
     return e.dataTransfer?.types?.includes('Files') ?? false;
@@ -172,7 +185,7 @@
     />
   {/if}
 
-  <div class="messages" bind:this={scrollEl}>
+  <div class="messages" bind:this={scrollEl} onscroll={handleScroll}>
     {#if messages.length === 0}
       <div class="empty">
         <h2>Welcome to Clerk</h2>
@@ -228,6 +241,10 @@
       </div>
     {/if}
   </div>
+
+  {#if showScrollBtn && messages.length > 0}
+    <button class="scroll-bottom" onclick={scrollToBottom} title="Scroll to bottom">&#8595;</button>
+  {/if}
 
   {#key chat.state.streaming}
     <ChatInput />
@@ -372,6 +389,29 @@
     border-radius: var(--radius-sm);
   }
   .error-dismiss:hover {
+    color: var(--clerk-text);
+  }
+  .scroll-bottom {
+    position: absolute;
+    bottom: 70px;
+    right: var(--sp-md);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--clerk-surface);
+    border: 1px solid var(--clerk-border);
+    color: var(--clerk-text-muted);
+    font-size: var(--font-size-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 5;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: background 0.15s, color 0.15s;
+  }
+  .scroll-bottom:hover {
+    background: var(--clerk-surface-hover);
     color: var(--clerk-text);
   }
 </style>

@@ -48,11 +48,25 @@
       enhanceCodeBlocks(contentEl);
     }
   });
+
+  let copyLabel = $state('Copy');
+
+  function copyMessage() {
+    navigator.clipboard.writeText(message.content).then(
+      () => { copyLabel = 'Copied!'; setTimeout(() => { copyLabel = 'Copy'; }, 1500); },
+      () => {},
+    );
+  }
 </script>
 
 <div class="message" class:user={isUser} class:assistant={!isUser}>
   <div class="bubble">
-    <div class="role">{isUser ? 'You' : 'Clerk'}</div>
+    <div class="bubble-header">
+      <span class="role">{isUser ? 'You' : 'Clerk'}</span>
+      {#if !isStreaming && displayContent}
+        <button class="copy-msg" title={copyLabel} onclick={copyMessage}>{copyLabel}</button>
+      {/if}
+    </div>
     {#if isUser}
       <div class="content plain">
         {#if userHtml}
@@ -113,13 +127,34 @@
     background: var(--clerk-assistant-bg);
     border: 1px solid var(--clerk-assistant-border);
   }
+  .bubble-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+  }
   .role {
     font-size: var(--font-size-xs);
     font-weight: 600;
     color: var(--clerk-text-secondary);
-    margin-bottom: 2px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+  .copy-msg {
+    font-size: var(--font-size-xs);
+    color: var(--clerk-text-muted);
+    background: none;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .bubble:hover .copy-msg {
+    opacity: 1;
+  }
+  .copy-msg:hover {
+    color: var(--clerk-text);
+    background: color-mix(in srgb, var(--clerk-surface) 50%, transparent);
   }
   .content.plain {
     font-size: var(--font-size-md);
