@@ -135,6 +135,17 @@ const api: ClerkAPI = {
     ipcRenderer.removeAllListeners(Channels.ACTIVITY_EVENT);
   },
 
+  // Auto-update
+  updateCheck: () => ipcRenderer.invoke(Channels.UPDATE_CHECK),
+  updateDownload: () => ipcRenderer.invoke(Channels.UPDATE_DOWNLOAD),
+  updateInstall: () => ipcRenderer.invoke(Channels.UPDATE_INSTALL),
+  onUpdateStatus: (cb) => {
+    ipcRenderer.on(Channels.UPDATE_STATUS, (_e, status) => cb(status));
+  },
+  offUpdateStatus: () => {
+    ipcRenderer.removeAllListeners(Channels.UPDATE_STATUS);
+  },
+
   // Connection state
   onConnectionState: (cb) => {
     ipcRenderer.on(Channels.CONNECTION_STATE, (_e, state) => cb(state));

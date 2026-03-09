@@ -20,6 +20,12 @@ files:
 
 asar: true
 
+# Auto-update via GitHub Releases
+publish:
+  provider: github
+  owner: unpingable
+  repo: clerk
+
 linux:
   target:
     - AppImage

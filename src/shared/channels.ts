@@ -79,6 +79,12 @@ export const Channels = {
   SHOW_SAVE_DIALOG: 'shell:showSaveDialog',
   SAVE_FILE: 'shell:saveFile',
 
+  // Auto-update
+  UPDATE_STATUS: 'update:status',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+
   // Conversations
   CONV_LIST: 'conv:list',
   CONV_LOAD: 'conv:load',

@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { Channels } from '../shared/channels.js';
+import { showNotification } from './system-tray.js';
 import type { ClerkBackend } from './backend.js';
 import { ConnectionMonitor } from './connection.js';
 import type { TemplateManager } from './template-manager.js';
@@ -64,6 +65,16 @@ function sanitizeError(err: unknown): string {
 
   // If the message already looks clean (no RPC codes, no stack frames), pass it through
   return raw;
+}
+
+/** Notify the user when a chat response completes (only if window not focused). */
+function notifyStreamEnd(result: Record<string, unknown>): void {
+  const violations = result.violations as Array<{ description?: string }> | undefined;
+  if (violations && violations.length > 0) {
+    showNotification('Clerk', violations[0]?.description ?? 'Response completed with issues.');
+  } else {
+    showNotification('Clerk', 'Response ready.');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +242,7 @@ export function registerIpcHandlers(
           },
           onEnd: (result) => {
             win.webContents.send(Channels.CHAT_STREAM_END, { streamId, result });
+            notifyStreamEnd(result);
           },
           onFileAction: (action) => {
             win.webContents.send(Channels.CHAT_FILE_ACTION, { streamId, action });
@@ -649,6 +661,23 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.CONV_SEARCH, async (_event, query: unknown) => {
     if (!conversationManager || typeof query !== 'string') return [];
     return conversationManager.search(query);
+  });
+
+  // --- Auto-update ---
+
+  ipcMain.handle(Channels.UPDATE_CHECK, async () => {
+    const { checkForUpdates } = await import('./auto-updater.js');
+    checkForUpdates();
+  });
+
+  ipcMain.handle(Channels.UPDATE_DOWNLOAD, async () => {
+    const { downloadUpdate } = await import('./auto-updater.js');
+    downloadUpdate();
+  });
+
+  ipcMain.handle(Channels.UPDATE_INSTALL, async () => {
+    const { installUpdate } = await import('./auto-updater.js');
+    installUpdate();
   });
 
   // --- Activity Feed ---

@@ -25,6 +25,8 @@ import { SettingsManager } from './settings-manager.js';
 import { ConversationManager } from './conversation-manager.js';
 import { makeAskGate } from './ipc-handlers.js';
 import type { AskGateState } from './ipc-handlers.js';
+import { initAutoUpdater, stopAutoUpdater } from './auto-updater.js';
+import { initSystemTray, destroySystemTray } from './system-tray.js';
 import { getTemplateById, getDefaultTemplate } from '../shared/templates.js';
 import type { FileManagerIO } from './file-manager.js';
 import type { ActivityLogIO } from './activity-log.js';
@@ -181,6 +183,8 @@ app.whenReady().then(() => {
     registerIpcHandlers(backend, monitor, resolveResult, templateManager, fileManager, toolLoop, activityManager, askGateState, settingsManager, conversationManager, governorDir, backendConfigIO);
     activityManager.attachBroadcast(win.webContents);
     monitor.start();
+    initAutoUpdater(win);
+    initSystemTray(win);
 
     // Apply persisted template async — non-blocking, logged
     templateManager.applyPersistedTemplate().then((result) => {
@@ -197,13 +201,17 @@ app.whenReady().then(() => {
     console.error(`[clerk] tried: ${resolveResult.tried.join(', ')}`);
     // Still launch the window — renderer will show the first-run screen
     registerIpcHandlers(null, null, resolveResult, null, null, null, null, null, settingsManager, conversationManager, null, null);
-    createWindow();
+    const win = createWindow();
+    initAutoUpdater(win);
+    initSystemTray(win);
   }
 });
 
 app.on('window-all-closed', () => {
   monitor?.stop();
   backend?.stop();
+  stopAutoUpdater();
+  destroySystemTray();
   if (process.platform !== 'darwin') app.quit();
 });
 

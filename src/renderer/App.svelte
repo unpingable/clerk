@@ -11,12 +11,14 @@
   import SettingsGear from './components/SettingsGear.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import ConversationSidebar from './components/ConversationSidebar.svelte';
+  import UpdateBanner from './components/UpdateBanner.svelte';
   import * as conn from './stores/connection.svelte';
   import * as chat from './stores/chat.svelte';
   import * as tmpl from './stores/template.svelte';
   import * as activity from './stores/activity.svelte';
   import * as caps from './stores/capabilities.svelte';
   import { loadSettings } from './stores/settings.svelte';
+  import { initUpdateListener, cleanupUpdateListener } from './stores/update.svelte';
   import { api } from '$lib/api';
   import { exportConversation } from '$lib/export';
   import type { DaemonStatus, DaemonStatusErr, BackendStatus } from '$shared/types';
@@ -138,6 +140,7 @@
   // Check daemon status, then wire up if ok
   $effect(() => {
     loadSettings();
+    initUpdateListener();
 
     function handleChangeBackend() {
       if (!daemonOk) return;
@@ -208,6 +211,7 @@
       window.removeEventListener('clerk:open-details', handleOpenDetails);
       window.removeEventListener('clerk:toggle-sidebar', handleToggleSidebar);
       window.removeEventListener('clerk:export-conversation', handleExportConversation);
+      cleanupUpdateListener();
     };
   });
 </script>
@@ -224,6 +228,7 @@
       <SettingsGear />
     </div>
   </header>
+  <UpdateBanner />
   <main class="main">
     {#if loading}
       <div class="loading">Starting up...</div>

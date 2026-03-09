@@ -481,6 +481,16 @@ export interface BackendConfig {
 
 export type BackendState = 'daemon_unhealthy' | 'missing' | 'unreachable' | 'no_models' | 'ready';
 
+// Auto-update
+export type UpdateStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'available'; version: string; releaseNotes?: string }
+  | { state: 'not-available' }
+  | { state: 'downloading'; percent: number }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; message: string };
+
 export interface BackendStatus {
   state: BackendState;
   type?: BackendType;
@@ -666,6 +676,13 @@ export interface ClerkAPI {
   conversationRename(id: string, title: string): Promise<ConversationMeta | null>;
   conversationSetActive(id: string | null): Promise<void>;
   conversationSearch(query: string): Promise<ConversationSearchHit[]>;
+
+  // Auto-update
+  updateCheck(): Promise<void>;
+  updateDownload(): Promise<void>;
+  updateInstall(): Promise<void>;
+  onUpdateStatus(cb: (status: UpdateStatus) => void): void;
+  offUpdateStatus(): void;
 
   // Connection state events
   onConnectionState(cb: (state: string) => void): void;
