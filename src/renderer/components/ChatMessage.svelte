@@ -18,16 +18,19 @@
     isStreaming ? normalizeStreamingContent(message.content) : message.content,
   );
 
-  // Render markdown for assistant messages (not user, not streaming — streaming uses plain text for perf)
+  // Render markdown for all assistant messages (including streaming).
+  // marked handles partial/unclosed markdown gracefully.
   const renderedHtml = $derived(
-    !isUser && !isStreaming ? renderMarkdown(displayContent) : '',
+    !isUser ? renderMarkdown(displayContent) : '',
   );
 
   let contentEl: HTMLElement | undefined = $state();
 
-  // Enhance code blocks (syntax highlighting + copy) after markdown renders
+  // Enhance code blocks (syntax highlighting + copy) after markdown renders.
+  // Only run on finalized messages — re-highlighting on every streaming delta is wasteful
+  // and causes flicker.
   $effect(() => {
-    if (contentEl && renderedHtml) {
+    if (contentEl && renderedHtml && !isStreaming) {
       enhanceCodeBlocks(contentEl);
     }
   });
@@ -36,13 +39,13 @@
 <div class="message" class:user={isUser} class:assistant={!isUser}>
   <div class="bubble">
     <div class="role">{isUser ? 'You' : 'Clerk'}</div>
-    {#if isUser || isStreaming}
+    {#if isUser}
       <div class="content plain">
-        {displayContent}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
+        {displayContent}
       </div>
     {:else}
       <div class="content markdown" bind:this={contentEl}>
-        {@html renderedHtml}
+        {@html renderedHtml}{#if isStreaming}<span class="cursor">&#9608;</span>{/if}
       </div>
     {/if}
     {#if message.attachments?.length}
