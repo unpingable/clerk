@@ -95,6 +95,7 @@
     if (id === 'new-conversation') { chat.newConversation(); return; }
     if (id === 'toggle-sidebar') { window.dispatchEvent(new CustomEvent('clerk:toggle-sidebar')); return; }
     if (id === 'export-conversation') { window.dispatchEvent(new CustomEvent('clerk:export-conversation')); return; }
+    if (id === 'search-messages') { window.dispatchEvent(new CustomEvent('clerk:search-messages')); return; }
     if (id.startsWith('request-template:')) { tmpl.requestTemplate(id.slice('request-template:'.length)); return; }
     if (id.startsWith('activity-filter:')) {
       window.dispatchEvent(new CustomEvent('clerk:open-details'));

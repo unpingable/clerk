@@ -12,6 +12,7 @@ export type CommandActionId =
   | 'new-conversation'
   | 'toggle-sidebar'
   | 'export-conversation'
+  | 'search-messages'
   | `request-template:${string}`
   | `activity-filter:${string}`;
 
@@ -137,6 +138,15 @@ export function buildCommands(ctx: CommandContext): Command[] {
     keywords: ['details', 'activity', 'inspector', 'panel', 'drawer', 'log'],
     shortcut: `${ctx.modKeyLabel}+D`,
     action: { type: 'ui', actionId: 'toggle-details' },
+  });
+
+  commands.push({
+    id: 'search-messages',
+    label: 'Search messages',
+    group: 'Control',
+    keywords: ['search', 'find', 'text', 'filter', 'messages'],
+    shortcut: `${ctx.modKeyLabel}+F`,
+    action: { type: 'ui', actionId: 'search-messages' },
   });
 
   if (!ctx.streaming) {

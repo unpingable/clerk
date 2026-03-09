@@ -5,10 +5,11 @@
   import { formatTimestamp } from '$lib/format';
   import { normalizeStreamingContent } from '$lib/normalize';
   import { renderMarkdown, enhanceCodeBlocks } from '$lib/markdown';
+  import { highlightHtml } from '$lib/search';
   import ReceiptStrip from './ReceiptStrip.svelte';
   import FileActionStrip from './FileActionStrip.svelte';
 
-  let { message }: { message: ChatMessage } = $props();
+  let { message, searchQuery = '' }: { message: ChatMessage; searchQuery?: string } = $props();
 
   const isUser = $derived(message.role === 'user');
   const isStreaming = $derived(message.streaming ?? false);
@@ -20,8 +21,21 @@
 
   // Render markdown for all assistant messages (including streaming).
   // marked handles partial/unclosed markdown gracefully.
-  const renderedHtml = $derived(
+  const baseHtml = $derived(
     !isUser ? renderMarkdown(displayContent) : '',
+  );
+
+  // Apply search highlighting (if active)
+  const renderedHtml = $derived(
+    baseHtml && searchQuery ? highlightHtml(baseHtml, searchQuery) : baseHtml,
+  );
+
+  // For user messages: highlight plain text by wrapping matches in <mark>
+  const userHtml = $derived(
+    isUser && searchQuery ? highlightHtml(
+      displayContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+      searchQuery,
+    ) : '',
   );
 
   let contentEl: HTMLElement | undefined = $state();
@@ -41,7 +55,11 @@
     <div class="role">{isUser ? 'You' : 'Clerk'}</div>
     {#if isUser}
       <div class="content plain">
-        {displayContent}
+        {#if userHtml}
+          {@html userHtml}
+        {:else}
+          {displayContent}
+        {/if}
       </div>
     {:else}
       <div class="content markdown" bind:this={contentEl}>
@@ -260,6 +278,13 @@
     text-decoration-color: var(--clerk-accent-hover);
   }
 
+  /* Search highlights */
+  .content :global(.search-highlight) {
+    background: color-mix(in srgb, var(--clerk-warn) 40%, transparent);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
   .cursor {
     animation: blink 1s step-end infinite;
     color: var(--clerk-accent);

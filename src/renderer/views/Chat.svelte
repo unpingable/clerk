@@ -6,7 +6,9 @@
   import ChatInput from '../components/ChatInput.svelte';
   import ViolationCard from '../components/ViolationCard.svelte';
   import AskCard from '../components/AskCard.svelte';
+  import SearchBar from '../components/SearchBar.svelte';
   import { classifyChatError } from '$lib/jargon';
+  import { findMatches } from '$lib/search';
   import { settings } from '../stores/settings.svelte';
 
   const errorInfo = $derived(
@@ -15,9 +17,68 @@
 
   const messages = $derived(chat.getMessages());
 
+  // --- Search state ---
+  let searchOpen = $state(false);
+  let searchQuery = $state('');
+  let currentMatchIdx = $state(0);
+
+  const searchMatches = $derived(findMatches(messages, searchQuery));
+
+  // Clamp current match index when matches change
+  $effect(() => {
+    if (currentMatchIdx >= searchMatches.length) {
+      currentMatchIdx = Math.max(0, searchMatches.length - 1);
+    }
+  });
+
+  // Scroll to current match
+  $effect(() => {
+    if (searchMatches.length > 0 && scrollEl) {
+      const match = searchMatches[currentMatchIdx];
+      if (match) {
+        const el = scrollEl.querySelector(`[data-msg-id="${match.messageId}"]`);
+        el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }
+  });
+
+  function openSearch() {
+    searchOpen = true;
+    searchQuery = '';
+    currentMatchIdx = 0;
+  }
+
+  function closeSearch() {
+    searchOpen = false;
+    searchQuery = '';
+  }
+
+  function nextMatch() {
+    if (searchMatches.length === 0) return;
+    currentMatchIdx = (currentMatchIdx + 1) % searchMatches.length;
+  }
+
+  function prevMatch() {
+    if (searchMatches.length === 0) return;
+    currentMatchIdx = (currentMatchIdx - 1 + searchMatches.length) % searchMatches.length;
+  }
+
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && chat.state.error && !chat.state.streaming && !chat.state.pendingAsk) {
-      chat.clearError();
+    // Ctrl+F: open search
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault();
+      openSearch();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (searchOpen) {
+        e.preventDefault();
+        closeSearch();
+        return;
+      }
+      if (chat.state.error && !chat.state.streaming && !chat.state.pendingAsk) {
+        chat.clearError();
+      }
     }
   }
 
@@ -73,13 +134,19 @@
     }
   }
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change (only when not searching)
   $effect(() => {
-    // Touch messages to subscribe
     messages.length;
-    if (scrollEl) {
+    if (scrollEl && !searchOpen) {
       scrollEl.scrollTop = scrollEl.scrollHeight;
     }
+  });
+
+  // Listen for search-messages event from command palette
+  $effect(() => {
+    function handleSearchMessages() { openSearch(); }
+    window.addEventListener('clerk:search-messages', handleSearchMessages);
+    return () => window.removeEventListener('clerk:search-messages', handleSearchMessages);
   });
 </script>
 
@@ -93,6 +160,18 @@
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
+  {#if searchOpen}
+    <SearchBar
+      query={searchQuery}
+      matchCount={searchMatches.length}
+      currentMatch={currentMatchIdx}
+      onClose={closeSearch}
+      onNext={nextMatch}
+      onPrev={prevMatch}
+      onQueryChange={(q) => { searchQuery = q; currentMatchIdx = 0; }}
+    />
+  {/if}
+
   <div class="messages" bind:this={scrollEl}>
     {#if messages.length === 0}
       <div class="empty">
@@ -113,7 +192,9 @@
       </div>
     {:else}
       {#each messages as message (message.id)}
-        <ChatMessage {message} />
+        <div data-msg-id={message.id}>
+          <ChatMessage {message} searchQuery={searchOpen ? searchQuery : ''} />
+        </div>
       {/each}
     {/if}
 
