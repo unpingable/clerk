@@ -62,6 +62,15 @@ npm run test:e2e   # E2E tests (playwright)
 - Views in `src/renderer/views/`
 - Stores in `src/renderer/stores/` (must be `.svelte.ts`)
 
+## Debugging Discipline
+
+Shared doctrine across the constellation (annotated source: `agent_gov/CLAUDE.md`):
+
+- **Default to reduction.** Escalate to integration only after reduction has failed to discriminate.
+- **Belief must be earned by the cheapest available falsification, not constructed by accretion.**
+
+**In this project**, "load-bearing" means the moment the renderer is about to treat any local state as "approved" or "committed." The cheapest discriminating test is always: round-trip through the daemon. The renderer's belief about daemon state is never authoritative — only the daemon's most recent response is. "The daemon is the sole authority" is the static version; this is its dynamic version.
+
 ## Don't
 
 - Don't let the renderer make governance decisions
